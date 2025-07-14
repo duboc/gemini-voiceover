@@ -208,3 +208,4 @@ __marimo__/
 static/outputs/
 static/temp/
 static/uploads/
+.DS_Store
