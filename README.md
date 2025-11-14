@@ -131,7 +131,26 @@ FLASK_PORT=5000
 TTS_SPEAKING_RATE=1.0
 ```
 
-### **6. Get API Keys**
+### **6. Set Up Google Cloud Storage (Optional)**
+
+**For Production Deployments**:
+```bash
+# Create a GCS bucket
+gsutil mb gs://your-voiceover-bucket
+
+# Set bucket permissions (if needed)
+gsutil iam ch serviceAccount:your-service-account@project.iam.gserviceaccount.com:objectAdmin gs://your-voiceover-bucket
+```
+
+**Configure GCS in `.env`**:
+```env
+STORAGE_BACKEND=gcs
+GCS_BUCKET_NAME=your-voiceover-bucket
+GCS_ENABLE_LIFECYCLE=True
+GCS_TEMP_FILE_RETENTION_DAYS=7
+```
+
+### **7. Get API Keys**
 
 **Gemini API Key**:
 - Go to [Google AI Studio](https://aistudio.google.com/)
@@ -141,7 +160,7 @@ TTS_SPEAKING_RATE=1.0
 **Google Cloud Project**:
 - Go to [Google Cloud Console](https://console.cloud.google.com/)
 - Create or select a project
-- Enable Text-to-Speech API
+- Enable Text-to-Speech API and Cloud Storage API
 - Set up authentication
 
 ## 🚀 Usage
@@ -153,7 +172,7 @@ python app.py
 
 ### **2. Open Web Interface**
 ```
-http://localhost:5000
+http://localhost:8080
 ```
 
 ### **3. Process Videos**
@@ -350,18 +369,64 @@ python -m modules.audio_separator
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
+This project is licensed under the Apache 2.0 License - see the LICENSE file for details.
 
 ## 🙏 Acknowledgments
 
 - **Google Gemini AI** for transcription and translation
 - **Google Cloud Text-to-Speech** for Chirp v3 HD voices
-- **Facebook Demucs** for state-of-the-art audio separation
+- **Demucs** for audio separation
 - **FFmpeg** for video/audio processing
 - **Flask** for the web framework
 - **Bootstrap** for UI components
 
+## ☁️ Google Cloud Storage Integration
+
+### **Scalable File Storage**
+- **Hybrid Storage**: Support for both local and Google Cloud Storage backends
+- **Automatic Lifecycle**: Configurable retention policies for temporary files
+- **Artifact Preservation**: All processing data saved for analysis and debugging
+- **Signed URLs**: Secure, time-limited download links for GCS files
+
+### **Storage Organization**
+```
+GCS Bucket Structure:
+├── uploads/           # Original uploaded videos
+├── outputs/           # Final translated videos  
+├── artifacts/         # Processing artifacts by process_id
+│   └── {process_id}/
+│       ├── json/      # Transcriptions, translations
+│       └── logs/      # Processing logs
+├── processing/        # Temporary processing files (auto-cleanup)
+└── temp/             # General temporary files (auto-cleanup)
+```
+
+### **Configuration Options**
+```env
+# Storage Backend Selection
+STORAGE_BACKEND=gcs              # Options: local, gcs
+
+# GCS Configuration  
+GCS_BUCKET_NAME=your-bucket-name
+GCS_ENABLE_LIFECYCLE=True
+GCS_TEMP_FILE_RETENTION_DAYS=7
+```
+
+### **Benefits**
+- **Scalability**: Handle larger files without local storage constraints
+- **Reliability**: Built-in redundancy and durability
+- **Cost Efficiency**: Automatic cleanup and pay-per-use pricing
+- **Multi-Instance**: Support for distributed processing
+- **Persistence**: Files survive server restarts and deployments
+
 ## 🆕 Recent Updates
+
+### **v2.1 - Google Cloud Storage Integration**
+- ✅ **Hybrid Storage System** - Local and GCS backend support
+- ✅ **Automatic Lifecycle Management** - Configurable file retention
+- ✅ **Artifact Storage** - Complete processing history preservation
+- ✅ **Signed URL Downloads** - Secure, scalable file delivery
+- ✅ **Graceful Fallback** - Automatic local storage if GCS unavailable
 
 ### **v2.0 - Professional Audio Processing**
 - ✅ **Google Cloud TTS Integration** - Chirp v3 HD voices

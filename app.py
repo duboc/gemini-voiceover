@@ -36,8 +36,25 @@ def index():
     return render_template('index.html', 
                          languages=Config.SUPPORTED_LANGUAGES,
                          voices=Config.AVAILABLE_VOICES,
+                         default_voices=Config.DEFAULT_VOICES,
                          separation_models=Config.SEPARATION_MODELS,
                          processing_modes=Config.PROCESSING_MODES)
+
+
+@app.route('/api/voices/<language_code>')
+def get_voices_for_language(language_code):
+    """Get available voices for a specific language"""
+    if language_code not in Config.SUPPORTED_LANGUAGES:
+        return jsonify({'error': 'Unsupported language'}), 400
+    
+    voices = Config.AVAILABLE_VOICES.get(language_code, {})
+    default_voice = Config.DEFAULT_VOICES.get(language_code)
+    
+    return jsonify({
+        'voices': voices,
+        'default_voice': default_voice,
+        'language_name': Config.SUPPORTED_LANGUAGES[language_code]
+    })
 
 
 @app.route('/upload', methods=['POST'])
@@ -57,8 +74,8 @@ def upload_file():
             return jsonify({'error': 'Invalid file format. Only MP4 and MOV files are supported.'}), 400
         
         # Get form data
-        target_language = request.form.get('language', 'pt-BR')
-        voice_name = request.form.get('voice', 'Zephyr')
+        target_language = request.form.get('language', 'en-US')
+        voice_name = request.form.get('voice', 'en-US-Chirp3-HD-Zephyr')
         separation_model = request.form.get('separation_model', Config.DEFAULT_SEPARATION_MODEL)
         processing_mode = request.form.get('processing_mode', Config.DEFAULT_PROCESSING_MODE)
         vocal_balance = float(request.form.get('vocal_balance', Config.DEFAULT_VOCAL_MUSIC_BALANCE))
@@ -88,10 +105,22 @@ def upload_file():
         # Save uploaded file
         video_path = file_manager.save_uploaded_file(file, "video")
         
+        # For GCS files, download locally for validation
+        local_video_path = video_path
+        if video_path.startswith('gs://'):
+            local_video_path = os.path.join("/tmp", f"validate_{os.path.basename(video_path)}")
+            file_manager.download_file(video_path, local_video_path)
+        
         # Validate video file
-        if not video_processor.validate_video_file(video_path):
+        if not video_processor.validate_video_file(local_video_path):
             file_manager.cleanup_temp_files()
+            if video_path.startswith('gs://') and os.path.exists(local_video_path):
+                os.remove(local_video_path)
             return jsonify({'error': 'Invalid video file'}), 400
+        
+        # Clean up temp validation file
+        if video_path.startswith('gs://') and os.path.exists(local_video_path):
+            os.remove(local_video_path)
         
         # Generate processing ID
         import uuid
@@ -146,7 +175,69 @@ def download_file(process_id):
     if not file_manager.file_exists(status['result_file']):
         return jsonify({'error': 'File not found'}), 404
     
-    return send_file(status['result_file'], as_attachment=True)
+    result_file = status['result_file']
+    
+    # Handle GCS files with enhanced URL generation
+    if result_file.startswith('gs://'):
+        download_info = file_manager.get_download_info(result_file)
+        
+        if download_info['type'] == 'gcs' and download_info.get('url'):
+            url_type = download_info.get('url_type', 'unknown')
+            logger.info(f"Redirecting to {url_type} for download: {process_id}")
+            
+            # Log any warnings about the URL type
+            if download_info.get('error'):
+                logger.warning(f"Download URL warning: {download_info['error']}")
+            
+            # Redirect to the generated URL (signed, token-based, or direct)
+            return redirect(download_info['url'])
+            
+        else:
+            # Enhanced fallback: download to temp and serve
+            error_msg = download_info.get('error', 'Failed to generate download URL')
+            logger.error(f"Download URL generation failed for {process_id}: {error_msg}")
+            
+            try:
+                logger.info(f"Attempting fallback download for {process_id}")
+                import tempfile
+                import os
+                
+                # Create a secure temporary file
+                with tempfile.NamedTemporaryFile(delete=False, suffix='.mp4') as temp_file:
+                    temp_path = temp_file.name
+                
+                # Download from GCS to temp file
+                file_manager.download_file(result_file, temp_path)
+                
+                # Generate a proper filename
+                original_name = os.path.basename(result_file)
+                if not original_name.endswith('.mp4'):
+                    original_name = f"translated_video_{process_id}.mp4"
+                
+                # Serve the file and schedule cleanup
+                def cleanup_temp_file():
+                    try:
+                        if os.path.exists(temp_path):
+                            os.remove(temp_path)
+                    except:
+                        pass
+                
+                # Use Flask's after_request to clean up
+                @app.after_request
+                def cleanup_after_request(response):
+                    cleanup_temp_file()
+                    return response
+                
+                logger.info(f"Serving fallback download for {process_id}")
+                return send_file(temp_path, as_attachment=True, download_name=original_name)
+                
+            except Exception as e:
+                logger.error(f"Fallback download failed for {process_id}: {str(e)}")
+                return jsonify({'error': f"Download failed: {str(e)}"}), 500
+    else:
+        # Local file
+        logger.info(f"Serving local file download for {process_id}")
+        return send_file(result_file, as_attachment=True)
 
 
 def process_video(process_id: str, video_path: str, target_language: str, voice_name: str, 
@@ -176,13 +267,20 @@ def process_video(process_id: str, video_path: str, target_language: str, voice_
         temp_dir = file_manager.create_temp_directory()
         logger.info(f"Created temporary directory: {temp_dir}")
         
+        # Download video file if it's in GCS
+        local_video_path = video_path
+        if video_path.startswith('gs://'):
+            local_video_path = os.path.join(temp_dir, "input_video.mp4")
+            file_manager.download_file(video_path, local_video_path)
+            logger.info(f"Downloaded video from GCS to: {local_video_path}")
+        
         # Extract audio from video
         audio_path = os.path.join(temp_dir, "extracted_audio.wav")
         logger.info(f"Extracting audio to: {audio_path}")
-        video_processor.extract_audio(video_path, audio_path)
+        video_processor.extract_audio(local_video_path, audio_path)
         
         # Get video info
-        video_info = video_processor.get_video_info(video_path)
+        video_info = video_processor.get_video_info(local_video_path)
         logger.info(f"Video info: {video_info}")
         
         # Check processing mode to determine if we need audio separation
@@ -240,11 +338,18 @@ def process_video(process_id: str, video_path: str, target_language: str, voice_
         transcription_data = gemini_client.transcribe_audio(vocals_path)
         logger.info(f"Transcription completed: {len(transcription_data.get('transcription', []))} segments")
         
-        # Save transcription for debugging
+        # Save transcription for debugging and as artifact
+        transcription_content = json.dumps(transcription_data, indent=2, ensure_ascii=False)
         transcription_file = os.path.join(temp_dir, "transcription.json")
         with open(transcription_file, 'w', encoding='utf-8') as f:
-            json.dump(transcription_data, f, indent=2, ensure_ascii=False)
+            f.write(transcription_content)
         logger.info(f"Transcription saved to: {transcription_file}")
+        
+        # Save transcription artifact
+        try:
+            file_manager.save_artifact(transcription_content, "transcription.json", process_id, "json")
+        except Exception as e:
+            logger.warning(f"Failed to save transcription artifact: {e}")
         
         # Update status
         processing_status[process_id].update({
@@ -257,11 +362,18 @@ def process_video(process_id: str, video_path: str, target_language: str, voice_
         translation_data = gemini_client.translate_text(transcription_data, target_language)
         logger.info(f"Translation completed: {len(translation_data.get('transcription', []))} segments")
         
-        # Save translation for debugging
+        # Save translation for debugging and as artifact
+        translation_content = json.dumps(translation_data, indent=2, ensure_ascii=False)
         translation_file = os.path.join(temp_dir, "translation.json")
         with open(translation_file, 'w', encoding='utf-8') as f:
-            json.dump(translation_data, f, indent=2, ensure_ascii=False)
+            f.write(translation_content)
         logger.info(f"Translation saved to: {translation_file}")
+        
+        # Save translation artifact
+        try:
+            file_manager.save_artifact(translation_content, "translation.json", process_id, "json")
+        except Exception as e:
+            logger.warning(f"Failed to save translation artifact: {e}")
         
         # Update status
         processing_status[process_id].update({
@@ -394,7 +506,7 @@ def process_video(process_id: str, video_path: str, target_language: str, voice_
         # Replace video audio with mixed result
         temp_output_path = os.path.join(temp_dir, "output_video.mp4")
         logger.info(f"Creating final video: {temp_output_path}")
-        video_processor.replace_video_audio(video_path, final_audio_path, temp_output_path)
+        video_processor.replace_video_audio(local_video_path, final_audio_path, temp_output_path)
         
         # Save final output
         final_output_path = file_manager.save_output_file(temp_output_path, original_filename)

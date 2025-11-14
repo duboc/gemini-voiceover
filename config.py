@@ -32,39 +32,145 @@ class Config:
     # Supported formats and languages
     ALLOWED_VIDEO_EXTENSIONS = {'mp4', 'mov'}
     SUPPORTED_LANGUAGES = {
+        'en-US': 'English (US)',
         'pt-BR': 'Brazilian Portuguese',
-        'es': 'Spanish'
+        'es-ES': 'Spanish (Spain)',
+        'fr-FR': 'French (France)',
+        'de-DE': 'German (Germany)',
+        'it-IT': 'Italian (Italy)',
+        'ja-JP': 'Japanese (Japan)',
+        'ko-KR': 'Korean (South Korea)',
+        'nl-NL': 'Dutch (Netherlands)',
+        'pl-PL': 'Polish (Poland)',
+        'ru-RU': 'Russian (Russia)',
+        'zh-CN': 'Chinese (Mandarin, China)'
     }
     
     # Available TTS voices (Google Cloud Chirp v3)
     AVAILABLE_VOICES = {
-        'pt-BR': {
-            'pt-BR-Chirp3-HD-Zephyr': 'Zephyr (Brazilian Portuguese)',
-            'pt-BR-Chirp3-HD-Puck': 'Puck (Brazilian Portuguese)',
-            'pt-BR-Chirp3-HD-Charon': 'Charon (Brazilian Portuguese)',
-            'pt-BR-Chirp3-HD-Kore': 'Kore (Brazilian Portuguese)',
-            'pt-BR-Chirp3-HD-Fenrir': 'Fenrir (Brazilian Portuguese)',
-            'pt-BR-Chirp3-HD-Aoede': 'Aoede (Brazilian Portuguese)'
+        'en-US': {
+            'en-US-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
+            'en-US-Chirp3-HD-Puck': 'Puck (Warm)',
+            'en-US-Chirp3-HD-Charon': 'Charon (Professional)',
+            'en-US-Chirp3-HD-Kore': 'Kore (Friendly)',
+            'en-US-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
+            'en-US-Chirp3-HD-Aoede': 'Aoede (Smooth)'
         },
-        'es': {
-            'es-ES-Chirp3-HD-Zephyr': 'Zephyr (Spanish)',
-            'es-ES-Chirp3-HD-Puck': 'Puck (Spanish)',
-            'es-ES-Chirp3-HD-Charon': 'Charon (Spanish)',
-            'es-ES-Chirp3-HD-Kore': 'Kore (Spanish)',
-            'es-ES-Chirp3-HD-Fenrir': 'Fenrir (Spanish)',
-            'es-ES-Chirp3-HD-Aoede': 'Aoede (Spanish)'
+        'pt-BR': {
+            'pt-BR-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
+            'pt-BR-Chirp3-HD-Puck': 'Puck (Warm)',
+            'pt-BR-Chirp3-HD-Charon': 'Charon (Professional)',
+            'pt-BR-Chirp3-HD-Kore': 'Kore (Friendly)',
+            'pt-BR-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
+            'pt-BR-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+        },
+        'es-ES': {
+            'es-ES-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
+            'es-ES-Chirp3-HD-Puck': 'Puck (Warm)',
+            'es-ES-Chirp3-HD-Charon': 'Charon (Professional)',
+            'es-ES-Chirp3-HD-Kore': 'Kore (Friendly)',
+            'es-ES-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
+            'es-ES-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+        },
+        'fr-FR': {
+            'fr-FR-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
+            'fr-FR-Chirp3-HD-Puck': 'Puck (Warm)',
+            'fr-FR-Chirp3-HD-Charon': 'Charon (Professional)',
+            'fr-FR-Chirp3-HD-Kore': 'Kore (Friendly)',
+            'fr-FR-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
+            'fr-FR-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+        },
+        'de-DE': {
+            'de-DE-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
+            'de-DE-Chirp3-HD-Puck': 'Puck (Warm)',
+            'de-DE-Chirp3-HD-Charon': 'Charon (Professional)',
+            'de-DE-Chirp3-HD-Kore': 'Kore (Friendly)',
+            'de-DE-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
+            'de-DE-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+        },
+        'it-IT': {
+            'it-IT-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
+            'it-IT-Chirp3-HD-Puck': 'Puck (Warm)',
+            'it-IT-Chirp3-HD-Charon': 'Charon (Professional)',
+            'it-IT-Chirp3-HD-Kore': 'Kore (Friendly)',
+            'it-IT-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
+            'it-IT-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+        },
+        'ja-JP': {
+            'ja-JP-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
+            'ja-JP-Chirp3-HD-Puck': 'Puck (Warm)',
+            'ja-JP-Chirp3-HD-Charon': 'Charon (Professional)',
+            'ja-JP-Chirp3-HD-Kore': 'Kore (Friendly)',
+            'ja-JP-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
+            'ja-JP-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+        },
+        'ko-KR': {
+            'ko-KR-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
+            'ko-KR-Chirp3-HD-Puck': 'Puck (Warm)',
+            'ko-KR-Chirp3-HD-Charon': 'Charon (Professional)',
+            'ko-KR-Chirp3-HD-Kore': 'Kore (Friendly)',
+            'ko-KR-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
+            'ko-KR-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+        },
+        'nl-NL': {
+            'nl-NL-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
+            'nl-NL-Chirp3-HD-Puck': 'Puck (Warm)',
+            'nl-NL-Chirp3-HD-Charon': 'Charon (Professional)',
+            'nl-NL-Chirp3-HD-Kore': 'Kore (Friendly)',
+            'nl-NL-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
+            'nl-NL-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+        },
+        'pl-PL': {
+            'pl-PL-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
+            'pl-PL-Chirp3-HD-Puck': 'Puck (Warm)',
+            'pl-PL-Chirp3-HD-Charon': 'Charon (Professional)',
+            'pl-PL-Chirp3-HD-Kore': 'Kore (Friendly)',
+            'pl-PL-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
+            'pl-PL-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+        },
+        'ru-RU': {
+            'ru-RU-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
+            'ru-RU-Chirp3-HD-Puck': 'Puck (Warm)',
+            'ru-RU-Chirp3-HD-Charon': 'Charon (Professional)',
+            'ru-RU-Chirp3-HD-Kore': 'Kore (Friendly)',
+            'ru-RU-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
+            'ru-RU-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+        },
+        'zh-CN': {
+            'zh-CN-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
+            'zh-CN-Chirp3-HD-Puck': 'Puck (Warm)',
+            'zh-CN-Chirp3-HD-Charon': 'Charon (Professional)',
+            'zh-CN-Chirp3-HD-Kore': 'Kore (Friendly)',
+            'zh-CN-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
+            'zh-CN-Chirp3-HD-Aoede': 'Aoede (Smooth)'
         }
     }
     
     # Default voices for each language
     DEFAULT_VOICES = {
+        'en-US': 'en-US-Chirp3-HD-Zephyr',
         'pt-BR': 'pt-BR-Chirp3-HD-Zephyr',
-        'es': 'es-ES-Chirp3-HD-Zephyr'
+        'es-ES': 'es-ES-Chirp3-HD-Zephyr',
+        'fr-FR': 'fr-FR-Chirp3-HD-Zephyr',
+        'de-DE': 'de-DE-Chirp3-HD-Zephyr',
+        'it-IT': 'it-IT-Chirp3-HD-Zephyr',
+        'ja-JP': 'ja-JP-Chirp3-HD-Zephyr',
+        'ko-KR': 'ko-KR-Chirp3-HD-Zephyr',
+        'nl-NL': 'nl-NL-Chirp3-HD-Zephyr',
+        'pl-PL': 'pl-PL-Chirp3-HD-Zephyr',
+        'ru-RU': 'ru-RU-Chirp3-HD-Zephyr',
+        'zh-CN': 'zh-CN-Chirp3-HD-Zephyr'
     }
     
     # Google Cloud TTS Configuration
     GOOGLE_CLOUD_PROJECT = os.getenv('GOOGLE_CLOUD_PROJECT')
     TTS_SPEAKING_RATE = float(os.getenv('TTS_SPEAKING_RATE', '1.0'))  # 0.25 to 2.0
+    
+    # Google Cloud Storage Configuration
+    GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
+    STORAGE_BACKEND = os.getenv('STORAGE_BACKEND', 'local')  # Options: local, gcs
+    GCS_ENABLE_LIFECYCLE = os.getenv('GCS_ENABLE_LIFECYCLE', 'True').lower() == 'true'
+    GCS_TEMP_FILE_RETENTION_DAYS = int(os.getenv('GCS_TEMP_FILE_RETENTION_DAYS', 7))
     
     # Audio separation models (Demucs-based)
     SEPARATION_MODELS = {
@@ -92,6 +198,13 @@ class Config:
         if not Config.GEMINI_API_KEY:
             raise ValueError("GEMINI_API_KEY is required. Please set it in your .env file.")
         
-        # Create necessary directories
+        # Validate GCS configuration if using GCS storage
+        if Config.STORAGE_BACKEND == 'gcs':
+            if not Config.GCS_BUCKET_NAME:
+                raise ValueError("GCS_BUCKET_NAME is required when using GCS storage backend. Please set it in your .env file.")
+            if not Config.GOOGLE_CLOUD_PROJECT:
+                raise ValueError("GOOGLE_CLOUD_PROJECT is required when using GCS storage backend. Please set it in your .env file.")
+        
+        # Create necessary directories (always needed for local temp processing)
         for folder in [Config.UPLOAD_FOLDER, Config.TEMP_FOLDER, Config.OUTPUT_FOLDER]:
             os.makedirs(folder, exist_ok=True)

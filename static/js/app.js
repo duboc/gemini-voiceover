@@ -4,7 +4,9 @@ class VideoTranslator {
     constructor() {
         this.processId = null;
         this.statusCheckInterval = null;
+        this.voicesData = {}; // Cache for voice data
         this.initializeEventListeners();
+        this.initializeVoiceSelection();
     }
 
     initializeEventListeners() {
@@ -256,11 +258,97 @@ class VideoTranslator {
             return `${minutes}:${secs.toString().padStart(2, '0')}`;
         }
     }
+
+    // Initialize voice selection functionality
+    initializeVoiceSelection() {
+        // Load initial voices for default language
+        const languageSelect = document.getElementById('language');
+        if (languageSelect) {
+            this.updateVoiceOptions(languageSelect.value);
+        }
+    }
+
+    // Update voice options based on selected language
+    async updateVoiceOptions(languageCode = null) {
+        const languageSelect = document.getElementById('language');
+        const voiceSelect = document.getElementById('voice');
+        
+        if (!languageCode) {
+            languageCode = languageSelect.value;
+        }
+
+        try {
+            // Check if we have cached data for this language
+            if (!this.voicesData[languageCode]) {
+                // Fetch voices for the selected language
+                const response = await fetch(`/api/voices/${languageCode}`);
+                if (!response.ok) {
+                    throw new Error('Failed to fetch voices');
+                }
+                this.voicesData[languageCode] = await response.json();
+            }
+
+            const data = this.voicesData[languageCode];
+            
+            // Clear current voice options
+            voiceSelect.innerHTML = '';
+            
+            // Add voice options for the selected language
+            Object.entries(data.voices).forEach(([voiceId, voiceName]) => {
+                const option = document.createElement('option');
+                option.value = voiceId;
+                option.textContent = voiceName;
+                
+                // Select default voice
+                if (voiceId === data.default_voice) {
+                    option.selected = true;
+                }
+                
+                voiceSelect.appendChild(option);
+            });
+
+            // Add visual feedback
+            this.showVoiceUpdateFeedback(data.language_name);
+
+        } catch (error) {
+            console.error('Error updating voice options:', error);
+            // Fallback: show error in voice select
+            voiceSelect.innerHTML = '<option value="">Error loading voices</option>';
+        }
+    }
+
+    // Show visual feedback when voices are updated
+    showVoiceUpdateFeedback(languageName) {
+        const voiceSelect = document.getElementById('voice');
+        const formText = voiceSelect.parentElement.querySelector('.form-text');
+        
+        if (formText) {
+            const originalText = formText.textContent;
+            formText.innerHTML = `<span class="text-success"><i class="fas fa-check me-1"></i>Updated voices for ${languageName}</span>`;
+            
+            // Reset text after 3 seconds
+            setTimeout(() => {
+                formText.textContent = originalText;
+            }, 3000);
+        }
+    }
+}
+
+// Global variable to store the VideoTranslator instance
+let videoTranslatorInstance = null;
+
+// Global function for updating voice options (called from HTML)
+function updateVoiceOptions() {
+    if (videoTranslatorInstance) {
+        const languageSelect = document.getElementById('language');
+        videoTranslatorInstance.updateVoiceOptions(languageSelect.value);
+    }
 }
 
 // Initialize the application when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    new VideoTranslator();
+    videoTranslatorInstance = new VideoTranslator();
+    window.videoTranslator = videoTranslatorInstance; // Make it globally accessible
     
     // Add some visual feedback for file selection
     const fileInput = document.getElementById('video-file');
