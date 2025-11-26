@@ -367,6 +367,31 @@ python -m modules.google_tts_client
 python -m modules.audio_separator
 ```
 
+## 🚀 Deployment to Google Cloud Run
+
+You can easily deploy this application to Google Cloud Run using the provided script.
+
+### Prerequisites
+1. [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) installed and initialized.
+2. A Google Cloud Project with billing enabled.
+3. `Cloud Run Admin` and `Artifact Registry Administrator` roles.
+
+### Deploy
+Run the deployment script:
+
+```bash
+./deploy.sh
+```
+
+The script will:
+1. Check for your `GEMINI_API_KEY` (in `.env` or prompt you).
+2. Build the container image remotely using Cloud Build.
+3. Deploy the service to Cloud Run.
+4. Output the public URL of your application.
+
+Note: The deployment creates a public service (`--allow-unauthenticated`). Remove this flag in `deploy.sh` if you want to restrict access.
+
+
 ## 📄 License
 
 This project is licensed under the Apache 2.0 License - see the LICENSE file for details.

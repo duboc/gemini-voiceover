@@ -10,6 +10,7 @@ from modules.video_processor import VideoProcessor
 from modules.file_manager import FileManager
 from modules.audio_separator import AudioSeparator
 from modules.google_tts_client import GoogleTTSClient
+from modules.audio_synchronizer import AudioSynchronizer
 
 # Set up logging
 logging.basicConfig(
@@ -38,22 +39,62 @@ def index():
                          voices=Config.AVAILABLE_VOICES,
                          default_voices=Config.DEFAULT_VOICES,
                          separation_models=Config.SEPARATION_MODELS,
-                         processing_modes=Config.PROCESSING_MODES)
+                         processing_modes=Config.PROCESSING_MODES,
+                         tts_backends=Config.TTS_BACKENDS)
 
 
-@app.route('/api/voices/<language_code>')
-def get_voices_for_language(language_code):
-    """Get available voices for a specific language"""
+@app.route('/api/voices/<tts_backend>/<language_code>')
+def get_voices_for_backend_and_language(tts_backend, language_code):
+    """Get available voices for a specific TTS backend and language"""
     if language_code not in Config.SUPPORTED_LANGUAGES:
         return jsonify({'error': 'Unsupported language'}), 400
     
-    voices = Config.AVAILABLE_VOICES.get(language_code, {})
-    default_voice = Config.DEFAULT_VOICES.get(language_code)
+    if tts_backend not in Config.TTS_BACKENDS:
+        return jsonify({'error': 'Unsupported TTS backend'}), 400
+    
+    # Get voices based on TTS backend selection
+    if tts_backend == 'gemini':
+        voices = Config.GEMINI_VOICES
+        default_voice = Config.DEFAULT_GEMINI_VOICE
+    elif tts_backend == 'chirp3':
+        voices = Config.CHIRP3_VOICES.get(language_code, {})
+        default_voice = Config.DEFAULT_CHIRP3_VOICES.get(language_code, '')
+    else:
+        return jsonify({'error': 'Invalid TTS backend'}), 400
     
     return jsonify({
         'voices': voices,
         'default_voice': default_voice,
-        'language_name': Config.SUPPORTED_LANGUAGES[language_code]
+        'language_name': Config.SUPPORTED_LANGUAGES[language_code],
+        'tts_backend': tts_backend
+    })
+
+
+@app.route('/api/voices/<language_code>')
+def get_voices_for_language(language_code):
+    """Legacy endpoint - Get available voices for a specific language (uses default backend)"""
+    if language_code not in Config.SUPPORTED_LANGUAGES:
+        return jsonify({'error': 'Unsupported language'}), 400
+    
+    # Use default TTS backend from config
+    tts_backend = Config.TTS_BACKEND
+    
+    if tts_backend == 'gemini':
+        voices = Config.GEMINI_VOICES
+        default_voice = Config.DEFAULT_GEMINI_VOICE
+    elif tts_backend == 'chirp3':
+        voices = Config.CHIRP3_VOICES.get(language_code, {})
+        default_voice = Config.DEFAULT_CHIRP3_VOICES.get(language_code, '')
+    else:
+        # Fallback to Gemini voices
+        voices = Config.GEMINI_VOICES
+        default_voice = Config.DEFAULT_GEMINI_VOICE
+    
+    return jsonify({
+        'voices': voices,
+        'default_voice': default_voice,
+        'language_name': Config.SUPPORTED_LANGUAGES[language_code],
+        'tts_backend': tts_backend
     })
 
 
@@ -75,7 +116,8 @@ def upload_file():
         
         # Get form data
         target_language = request.form.get('language', 'en-US')
-        voice_name = request.form.get('voice', 'en-US-Chirp3-HD-Zephyr')
+        tts_backend = request.form.get('tts_backend', Config.TTS_BACKEND)
+        voice_name = request.form.get('voice', Config.DEFAULT_GEMINI_VOICE)
         separation_model = request.form.get('separation_model', Config.DEFAULT_SEPARATION_MODEL)
         processing_mode = request.form.get('processing_mode', Config.DEFAULT_PROCESSING_MODE)
         vocal_balance = float(request.form.get('vocal_balance', Config.DEFAULT_VOCAL_MUSIC_BALANCE))
@@ -83,15 +125,20 @@ def upload_file():
         if target_language not in Config.SUPPORTED_LANGUAGES:
             return jsonify({'error': 'Unsupported language'}), 400
         
-        # Validate voice name (check if it exists in any language)
-        valid_voice = False
-        for lang_voices in Config.AVAILABLE_VOICES.values():
-            if voice_name in lang_voices:
-                valid_voice = True
-                break
+        if tts_backend not in Config.TTS_BACKENDS:
+            return jsonify({'error': 'Unsupported TTS backend'}), 400
         
-        if not valid_voice:
-            return jsonify({'error': 'Unsupported voice'}), 400
+        # Validate voice name based on TTS backend
+        if tts_backend == 'gemini':
+            if voice_name not in Config.GEMINI_VOICES:
+                return jsonify({'error': 'Unsupported voice for Gemini TTS'}), 400
+        elif tts_backend == 'chirp3':
+            # Validate Chirp 3 voice
+            valid_voices = Config.CHIRP3_VOICES.get(target_language, {})
+            if voice_name not in valid_voices:
+                return jsonify({'error': f'Unsupported voice for Chirp 3 and language {target_language}'}), 400
+        else:
+            return jsonify({'error': 'Invalid TTS backend'}), 400
         
         if separation_model not in Config.SEPARATION_MODELS:
             return jsonify({'error': 'Unsupported separation model'}), 400
@@ -138,7 +185,7 @@ def upload_file():
         # Start processing in background thread
         thread = threading.Thread(
             target=process_video,
-            args=(process_id, video_path, target_language, voice_name, separation_model, processing_mode, vocal_balance, file.filename)
+            args=(process_id, video_path, target_language, voice_name, tts_backend, separation_model, processing_mode, vocal_balance, file.filename)
         )
         thread.daemon = True
         thread.start()
@@ -160,6 +207,50 @@ def get_status(process_id):
         return jsonify({'error': 'Invalid process ID'}), 404
     
     return jsonify(processing_status[process_id])
+
+
+@app.route('/api/review/<process_id>')
+def get_review_data(process_id):
+    """Get transcription and translation for review"""
+    if process_id not in processing_status:
+        return jsonify({'error': 'Invalid process ID'}), 404
+    
+    status = processing_status[process_id]
+    
+    if 'transcription_data' not in status or 'translation_data' not in status:
+        return jsonify({'error': 'Review data not available'}), 404
+    
+    return jsonify({
+        'transcription': status['transcription_data'],
+        'translation': status['translation_data'],
+        'target_language': status.get('target_language', 'unknown')
+    })
+
+
+@app.route('/api/approve/<process_id>', methods=['POST'])
+def approve_translation(process_id):
+    """Approve translation and continue with video generation"""
+    if process_id not in processing_status:
+        return jsonify({'error': 'Invalid process ID'}), 404
+    
+    status = processing_status[process_id]
+    
+    if status.get('status') != 'awaiting_review':
+        return jsonify({'error': 'Not in review state'}), 400
+    
+    # Get edited translation if provided
+    data = request.get_json()
+    if data and 'translation' in data:
+        # User edited the translation
+        status['translation_data'] = data['translation']
+        logger.info(f"User updated translation for {process_id}")
+    
+    # Signal to continue processing
+    status['approved'] = True
+    status['status'] = 'processing'
+    status['message'] = 'Generating speech with approved translation...'
+    
+    return jsonify({'success': True, 'message': 'Translation approved, continuing processing'})
 
 
 @app.route('/download/<process_id>')
@@ -241,7 +332,7 @@ def download_file(process_id):
 
 
 def process_video(process_id: str, video_path: str, target_language: str, voice_name: str, 
-                 separation_model: str, processing_mode: str, vocal_balance: float, original_filename: str):
+                 tts_backend: str, separation_model: str, processing_mode: str, vocal_balance: float, original_filename: str):
     """Process video in background thread with Demucs separation and intelligent fallback"""
     temp_dir = None
     audio_separator = None
@@ -249,7 +340,7 @@ def process_video(process_id: str, video_path: str, target_language: str, voice_
     
     try:
         logger.info(f"Starting video processing for {process_id}: {original_filename}")
-        logger.info(f"Target language: {target_language}, Voice: {voice_name}")
+        logger.info(f"Target language: {target_language}, Voice: {voice_name}, TTS Backend: {tts_backend}")
         logger.info(f"Separation model: {separation_model}, Processing mode: {processing_mode}")
         logger.info(f"Vocal balance: {vocal_balance}")
         
@@ -330,13 +421,24 @@ def process_video(process_id: str, video_path: str, target_language: str, voice_
         # Update status
         processing_status[process_id].update({
             'progress': 30,
-            'message': 'Transcribing vocal track...'
+            'message': 'Transcribing vocal track with video context...'
         })
         
-        # Transcribe vocal track only
-        logger.info("Starting vocal track transcription...")
-        transcription_data = gemini_client.transcribe_audio(vocals_path)
-        logger.info(f"Transcription completed: {len(transcription_data.get('transcription', []))} segments")
+        # Transcribe vocal track with video context for better accuracy
+        logger.info("Starting vocal track transcription with video context...")
+        try:
+            transcription_data = gemini_client.validate_and_regenerate(
+                vocals_path, 
+                local_video_path,
+                min_quality=0.6,
+                max_attempts=2
+            )
+            quality_score = transcription_data.get('quality_score', 0.0)
+            logger.info(f"Transcription completed: {len(transcription_data.get('transcription', []))} segments (quality: {quality_score:.2f})")
+        except Exception as e:
+            logger.warning(f"Video-enhanced transcription failed, trying audio-only: {e}")
+            transcription_data = gemini_client.transcribe_audio(vocals_path)
+            logger.info(f"Audio-only transcription completed: {len(transcription_data.get('transcription', []))} segments")
         
         # Save transcription for debugging and as artifact
         transcription_content = json.dumps(transcription_data, indent=2, ensure_ascii=False)
@@ -360,6 +462,10 @@ def process_video(process_id: str, video_path: str, target_language: str, voice_
         # Translate text
         logger.info("Starting text translation...")
         translation_data = gemini_client.translate_text(transcription_data, target_language)
+        
+        # Store target language in translation data for later use
+        translation_data['target_language'] = target_language
+        
         logger.info(f"Translation completed: {len(translation_data.get('transcription', []))} segments")
         
         # Save translation for debugging and as artifact
@@ -375,39 +481,206 @@ def process_video(process_id: str, video_path: str, target_language: str, voice_
         except Exception as e:
             logger.warning(f"Failed to save translation artifact: {e}")
         
-        # Update status
+        # REVIEW STEP: Wait for user to approve translation
         processing_status[process_id].update({
-            'progress': 70,
-            'message': 'Generating speech...'
+            'status': 'awaiting_review',
+            'progress': 60,
+            'message': 'Please review the transcription and translation',
+            'transcription_data': transcription_data,
+            'translation_data': translation_data,
+            'target_language': target_language,
+            'approved': False
         })
         
-        # Initialize Google Cloud TTS client and generate speech segments
-        google_tts_client = GoogleTTSClient()
+        logger.info(f"Waiting for user approval for {process_id}")
+        
+        # Wait for user approval (poll every 2 seconds)
+        import time
+        max_wait_time = 3600  # 1 hour max wait
+        wait_time = 0
+        while not processing_status[process_id].get('approved', False) and wait_time < max_wait_time:
+            time.sleep(2)
+            wait_time += 2
+            
+            # Check if user cancelled or error occurred
+            if processing_status[process_id].get('status') == 'cancelled':
+                logger.info(f"Processing cancelled by user for {process_id}")
+                return
+        
+        if wait_time >= max_wait_time:
+            raise Exception("Review timeout: User did not approve translation within 1 hour")
+        
+        # Get potentially updated translation data
+        translation_data = processing_status[process_id]['translation_data']
+        logger.info(f"User approved translation for {process_id}")
+        
+        # Initialize TTS client based on backend selection
         speech_dir = os.path.join(temp_dir, "speech_segments")
         os.makedirs(speech_dir, exist_ok=True)
-        logger.info(f"Generating speech segments in: {speech_dir}")
         
-        # Map voice name to full Google Cloud voice name
-        full_voice_name = voice_name
-        if voice_name in Config.AVAILABLE_VOICES.get(target_language, {}):
-            full_voice_name = voice_name
+        # Initialize Google TTS Client (Unified for both Gemini and Chirp)
+        google_tts_client = GoogleTTSClient()
+        
+        if tts_backend == 'gemini':
+            # Gemini TTS 2.5 Flash
+            processing_status[process_id].update({
+                'status': 'processing',
+                'progress': 70,
+                'message': 'Generating speech with Gemini TTS 2.5 Flash...'
+            })
+            
+            logger.info(f"Using Gemini TTS 2.5 Flash for speech generation")
+            
+            # Validate voice
+            if voice_name not in Config.GEMINI_VOICES:
+                voice_name = Config.DEFAULT_GEMINI_VOICE
+                logger.warning(f"Invalid Gemini voice, using default: {voice_name}")
+            
+            logger.info(f"Generating speech with Gemini voice: {voice_name}")
+            
+            # Determine model name from config
+            model_name = Config.GEMINI_TTS_MODEL
+            
+            audio_files = google_tts_client.generate_speech(
+                translation_data, 
+                voice_name, 
+                speech_dir,
+                model_name=model_name
+            )
+            
+            logger.info(f"Generated {len(audio_files)} audio files with Gemini TTS")
+            
+        elif tts_backend == 'chirp3':
+            # Vertex AI / Google Cloud TTS with Chirp 3 HD
+            processing_status[process_id].update({
+                'status': 'processing',
+                'progress': 70,
+                'message': 'Generating speech with Vertex AI Chirp 3 HD...'
+            })
+            
+            logger.info(f"Using Vertex AI Chirp 3 HD for speech generation")
+            
+            # Validate voice
+            valid_voices = Config.CHIRP3_VOICES.get(target_language, {})
+            if voice_name not in valid_voices:
+                voice_name = Config.DEFAULT_CHIRP3_VOICES.get(target_language, '')
+                if not voice_name:
+                    raise Exception(f"No Chirp 3 voices available for language {target_language}")
+                logger.warning(f"Invalid Chirp 3 voice, using default: {voice_name}")
+            
+            logger.info(f"Generating speech with Chirp 3 voice: {voice_name}")
+            
+            # Chirp 3 HD does not use model_name param in the same way (or uses 'chirp-3-hd' implied by voice name?)
+            # The docs say: "voice=texttospeech.VoiceSelectionParams(name='en-US-Chirp3-HD-Charon', ...)"
+            # We don't strictly need model_name for Chirp if voice name is specific.
+            
+            audio_files = google_tts_client.generate_speech(
+                translation_data, 
+                voice_name, 
+                speech_dir
+            )
+            logger.info(f"Generated {len(audio_files)} audio files with Chirp 3 HD")
+            
         else:
-            # Use default voice for the language if voice not found
-            full_voice_name = Config.DEFAULT_VOICES.get(target_language, Config.DEFAULT_VOICES['pt-BR'])
-            logger.warning(f"Voice {voice_name} not found for {target_language}, using default: {full_voice_name}")
+            raise Exception(f"Unsupported TTS backend: {tts_backend}")
         
-        audio_files = google_tts_client.generate_speech_with_markup(translation_data, full_voice_name, speech_dir)
-        logger.info(f"Generated {len(audio_files)} audio files with Google Cloud TTS: {audio_files}")
+        # Update status
+        processing_status[process_id].update({
+            'progress': 80,
+            'message': 'Synchronizing audio timing...'
+        })
+        
+        # Extract timestamps for audio combination
+        timestamps = [(seg['start_time'], seg['end_time']) for seg in translation_data['transcription']]
+        logger.info(f"Audio timestamps: {timestamps}")
+        
+        # Apply audio synchronization if enabled
+        if Config.ENABLE_AUDIO_SYNC:
+            logger.info("Synchronizing audio segments...")
+            audio_synchronizer = AudioSynchronizer()
+            
+            # DURATION ADJUSTMENT LOOP: Ensure speech fits naturally
+            if getattr(Config, 'ENFORCE_ORIGINAL_DURATION', True):
+                max_attempts = getattr(Config, 'MAX_DURATION_ADJUSTMENT_ATTEMPTS', 3)
+                logger.info(f"Checking for duration mismatches (max attempts: {max_attempts})...")
+                
+                for attempt in range(max_attempts):
+                    # Analyze current timing
+                    timing_analysis = audio_synchronizer.analyze_timing_accuracy(audio_files, timestamps)
+                    
+                    # Identify segments requiring excessive speedup
+                    segments_to_fix = [item for item in timing_analysis['timing_data'] if item.get('needs_shortening', False)]
+                    
+                    if not segments_to_fix:
+                        logger.info("All segments fit within duration limits (no excessive shortening needed).")
+                        break
+                    
+                    logger.info(f"Duration check attempt {attempt+1}: Found {len(segments_to_fix)} segments requiring shortening.")
+                    
+                    adjustments_made = False
+                    for item in segments_to_fix:
+                        idx = item['segment']
+                        current_duration = item['actual_duration']
+                        target_duration = item['expected_duration']
+                        
+                        logger.info(f"Fixing segment {idx}: {current_duration:.2f}s > {target_duration:.2f}s (needs shortening)")
+                        
+                        try:
+                            # Construct partial data for just this segment
+                            segment_data = {
+                                'transcription': [translation_data['transcription'][idx]]
+                            }
+                            
+                            # Request shortened translation from Gemini
+                            adjusted_segment_data = gemini_client.adjust_translation_for_duration(
+                                segment_data,
+                                target_duration,
+                                current_duration,
+                                target_language
+                            )
+                            
+                            # Update main translation data
+                            if adjusted_segment_data and 'transcription' in adjusted_segment_data and adjusted_segment_data['transcription']:
+                                new_text = adjusted_segment_data['transcription'][0]['text']
+                                old_text = translation_data['transcription'][idx]['text']
+                                
+                                if new_text != old_text:
+                                    logger.info(f"Segment {idx} updated: '{old_text[:30]}...' -> '{new_text[:30]}...'")
+                                    translation_data['transcription'][idx]['text'] = new_text
+                                    adjustments_made = True
+                        except Exception as e:
+                            logger.error(f"Failed to adjust segment {idx}: {e}")
+                    
+                    if adjustments_made:
+                        # Re-generate TTS for ALL segments to ensure consistency and file ordering
+                        # (Optimization: Could just regenerate specific files, but generate_speech handles list)
+                        logger.info("Regenerating TTS with shortened text...")
+                        audio_files = google_tts_client.generate_speech(
+                            translation_data, 
+                            voice_name, 
+                            speech_dir,
+                            model_name=model_name if tts_backend == 'gemini' else None
+                        )
+                    else:
+                        logger.warning("No adjustments could be made despite duration issues. Continuing...")
+                        break
+
+            # Final Synchronization (Fine-tuning)
+            # Analyze timing before final sync
+            timing_analysis = audio_synchronizer.analyze_timing_accuracy(audio_files, timestamps)
+            logger.info(f"Final timing analysis: {timing_analysis['segments_out_of_sync']}/{timing_analysis['total_segments']} out of sync")
+            
+            # Synchronize segments
+            sync_dir = os.path.join(temp_dir, "synchronized")
+            os.makedirs(sync_dir, exist_ok=True)
+            audio_files = audio_synchronizer.synchronize_segments(audio_files, timestamps, sync_dir)
+            logger.info("Audio synchronization completed")
         
         # Update status
         processing_status[process_id].update({
             'progress': 85,
             'message': 'Combining audio segments...'
         })
-        
-        # Extract timestamps for audio combination
-        timestamps = [(seg['start_time'], seg['end_time']) for seg in translation_data['transcription']]
-        logger.info(f"Audio timestamps: {timestamps}")
         
         # Combine new vocal segments
         new_vocals_path = os.path.join(temp_dir, "new_vocals.wav")

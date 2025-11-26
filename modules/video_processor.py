@@ -105,72 +105,17 @@ class VideoProcessor:
                 )
                 return output_path
             
-            # Use the most reliable approach - build a proper filter complex
-            logger.info("Creating combined audio using filter complex approach")
+            # Use concatenation method which is more reliable for sequential voiceover
+            # and avoids issues with complex filter graphs or mixing limits
+            logger.info("Combining audio using concatenation method")
             
             try:
-                # Build inputs list
-                inputs = []
-                
-                # Add silent base track
-                inputs.append(ffmpeg.input(
-                    f'anullsrc=channel_layout={"mono" if channels == 1 else "stereo"}:sample_rate={sample_rate}', 
-                    f='lavfi', t=total_duration
-                ))
-                
-                # Add all audio files
-                for audio_file in valid_audio_files:
-                    inputs.append(ffmpeg.input(audio_file))
-                
-                # Build filter complex string
-                filter_parts = []
-                
-                # Apply delays to each audio segment
-                for i, (start_time, end_time) in enumerate(valid_timestamps):
-                    delay_ms = int(start_time * 1000)
-                    if delay_ms > 0:
-                        # Apply delay to the audio segment
-                        filter_parts.append(f'[{i+1}:a]adelay={delay_ms}|{delay_ms}[delayed{i}]')
-                    else:
-                        # No delay needed, just label it
-                        filter_parts.append(f'[{i+1}:a]acopy[delayed{i}]')
-                
-                # Mix all delayed segments with the silent base
-                mix_inputs = '[0:a]'  # Start with silent base
-                for i in range(len(valid_audio_files)):
-                    mix_inputs += f'[delayed{i}]'
-                
-                # Create the final mix
-                filter_parts.append(f'{mix_inputs}amix=inputs={len(valid_audio_files) + 1}:duration=longest:dropout_transition=0:weights=1 {"2 " * len(valid_audio_files)}[out]')
-                
-                # Join all filter parts
-                filter_complex = ';'.join(filter_parts)
-                
-                logger.info(f"Using filter complex: {filter_complex[:300]}...")
-                
-                # Run FFmpeg with the complex filter
-                out = ffmpeg.output(
-                    *inputs,
-                    output_path,
-                    filter_complex=filter_complex,
-                    map='[out]',
-                    acodec='pcm_s16le',
-                    ar=sample_rate,
-                    ac=channels
-                ).overwrite_output()
-                
-                ffmpeg.run(out, capture_stdout=True, capture_stderr=True)
-                logger.info("Audio combination completed successfully")
-                
-            except Exception as complex_error:
-                logger.warning(f"Single-pass mixing failed: {complex_error}")
-                logger.info("Falling back to simple concatenation method")
-                
-                # Fallback to simple concatenation
                 self._fallback_concatenation(valid_audio_files, valid_timestamps, output_path, total_duration, sample_rate, channels)
-            
-            logger.info("Audio combination completed successfully with quality preservation")
-            return output_path
+                logger.info("Audio combination completed successfully")
+                return output_path
+            except Exception as e:
+                logger.error(f"Concatenation failed: {e}")
+                raise
             
         except ffmpeg.Error as e:
             logger.error(f"FFmpeg error during audio combination: {e.stderr.decode()}")

@@ -1,186 +1,126 @@
-# Active Context - Google Cloud Storage Integration
+# Active Context - Vertex AI TTS Migration
 
 ## Current Implementation Status
-✅ **COMPLETED** - Google Cloud Storage integration for the Gemini Video Voiceover Translator
+✅ **COMPLETED** - Full Migration to Vertex AI (ADC) for Transcription, Translation, and TTS
 
-## What Was Implemented
+## Latest Implementations
 
-### 1. **GCS Client Module** (`modules/gcs_client.py`)
-- Complete Google Cloud Storage client with comprehensive functionality
-- File upload/download operations with proper error handling
-- Bucket management and lifecycle policy setup
-- Signed URL generation for secure file access
-- Artifact management and folder operations
+### 1. **Cloud Run Infrastructure Optimization**
+- **Resolved 413 Payload Too Large Error**:
+  - Enabled HTTP/2 (`--use-http2`) in `deploy.sh` to support larger uploads (bypassing 32MB HTTP/1 limit)
+  - Increased container resources: Memory 4Gi, CPU 2 to handle heavier video processing
+- **Deployment Configuration**:
+  - Sets `GOOGLE_CLOUD_PROJECT` and `GOOGLE_CLOUD_LOCATION` automatically
+  - Removes deprecated `GEMINI_API_KEY` setting
 
-### 2. **Enhanced FileManager** (`modules/file_manager.py`)
-- Hybrid storage system supporting both local and GCS backends
-- Automatic fallback from GCS to local storage if configuration fails
-- Seamless file operations that abstract storage location
-- Artifact saving for transcriptions, translations, and processing data
-- Smart cleanup for both local and GCS files
+### 2. **Vertex AI Integration (Full ADC Adoption)**
+- **Migrated Transcription/Translation (`GeminiClient`) to Vertex AI**
+  - Replaced API key authentication with Application Default Credentials (ADC)
+  - Configured `google-genai` client to use `vertexai=True`
+  - Enforced `GOOGLE_CLOUD_PROJECT` requirement
+- **Migrated TTS (`GoogleTTSClient`) to Vertex AI**
+  - Supports both Gemini 2.5 Flash TTS (`gemini-2.5-flash-tts`) and Chirp 3 HD voices
+  - Uses Google Cloud ADC
+  - Fixed `VoiceSelectionParams` issue by using constructor arguments
+  - Corrected Chirp 3 voice names in config
+- **Configuration Updates**
+  - Removed `GEMINI_API_KEY` dependency
+  - Added logic to infer Google Cloud Project from environment
 
-### 3. **Configuration Updates**
-- **`.env.example`**: Added GCS configuration variables
-- **`config.py`**: Added GCS settings and validation
-- **`requirements.txt`**: Added `google-cloud-storage>=2.10.0`
+### 3. **Audio Processing Improvements**
+- **Fixed Audio Sync/Stacking**:
+  - Switched `VideoProcessor` to prioritize sequential concatenation method
+  - Resolves "rushed over" audio issue where segments were overlapping or playing at once
+- **Enhanced Robustness**:
+  - Simpler concatenation logic prevents timing drift and filter graph complexities
 
-### 4. **Application Integration** (`app.py`)
-- Updated video processing pipeline to handle GCS files
-- Automatic download of GCS files for local processing
-- Artifact saving throughout the processing pipeline
-- Enhanced download endpoint with signed URL support
-- Proper cleanup of both local and GCS resources
+### 4. **Gemini TTS 2.5 Flash Integration** (Legacy API Key Implementation Removed)
+- **Migration to Vertex AI Completed**
+- Logic moved to `GoogleTTSClient`
 
-## Key Features Implemented
+### 5. **Audio Synchronization System** (`modules/audio_synchronizer.py`)
+- **Intelligent audio-to-video timing synchronization**
+- Analyzes TTS-generated audio duration vs. expected timing
+- Applies time-stretching to match original timing
+- Quality-aware stretch limits (max 30% change)
+- Preserves pitch and audio quality
 
-### **Storage Backend Selection**
+## Current Architecture
+
+### AI Pipeline (All Vertex AI)
+```
+Upload → Extract → Transcribe (Gemini) → Translate (Gemini) → REVIEW 
+  → TTS (Gemini/Chirp) → Sync → Mix → Final Video
+```
+
+## Configuration Updates
+
+### New Environment Variables
 ```env
-STORAGE_BACKEND=gcs  # Options: local, gcs
+# Google Cloud Configuration
+GOOGLE_CLOUD_PROJECT=your-project-id  # Required
+GOOGLE_CLOUD_LOCATION=us-central1     # Optional, default: us-central1
+
+# Gemini TTS Configuration
+GEMINI_TTS_MODEL=gemini-2.5-flash-tts
+TTS_BACKEND=gemini  # Options: gemini, chirp3
+
+# Audio Synchronization
+ENABLE_AUDIO_SYNC=True
+AUDIO_SYNC_MAX_STRETCH=1.3
+AUDIO_SYNC_TOLERANCE=0.2
+
+# TTS Batching & Rate Limiting
+TTS_ENABLE_BATCHING=True
+TTS_BATCH_SIZE=10
+TTS_RATE_LIMIT_DELAY=6.5
+TTS_MAX_RETRIES=5
+
+# Gemini Voices
+DEFAULT_GEMINI_VOICE=Zephyr
+GEMINI_VOICES=Zephyr,Puck,Charon,Kore,Fenrir,Aoede
 ```
 
-### **GCS Configuration**
-```env
-GCS_BUCKET_NAME=your_gcs_bucket_name
-GCS_ENABLE_LIFECYCLE=True
-GCS_TEMP_FILE_RETENTION_DAYS=7
+### Updated Dependencies
+```
+google-cloud-texttospeech>=2.32.0
+google-genai>=0.3.0  # Used for transcription/translation (Vertex backend)
+gunicorn>=20.1.0     # Production WSGI server
 ```
 
-### **File Organization in GCS**
-```
-bucket/
-├── uploads/           # Original uploaded videos
-├── outputs/           # Final translated videos
-├── artifacts/         # Processing artifacts by process_id
-│   └── {process_id}/
-│       ├── json/      # Transcriptions, translations
-│       └── logs/      # Processing logs
-├── processing/        # Temporary processing files
-│   └── {process_id}/
-│       └── audio_segments/
-└── temp/             # General temporary files
-```
-
-### **Lifecycle Management**
-- Automatic deletion of temp files after 7 days (configurable)
-- Lifecycle policies applied to `temp/` and `processing/` prefixes
-- Preserves `uploads/`, `outputs/`, and `artifacts/` permanently
-
-### **Artifact Storage**
-- Transcription JSON files saved to GCS
-- Translation JSON files saved to GCS
-- Processing metadata and logs preserved
-- Audio segments optionally saved for debugging
-
-### **Download Handling**
-- **GCS files**: Signed URLs for direct download (60-minute expiration)
-- **Local files**: Traditional Flask file serving
-- **Fallback**: Download to temp and serve if signed URL fails
-
-## Benefits Achieved
-
-### **Scalability**
-- Handle larger video files without local storage constraints
-- Support for concurrent processing across multiple instances
-- Automatic cleanup prevents storage bloat
-
-### **Reliability**
-- Built-in redundancy and durability of Google Cloud Storage
-- Persistent storage survives server restarts and deployments
-- Comprehensive error handling and fallback mechanisms
-
-### **Cost Efficiency**
-- Automatic lifecycle management for temporary files
-- Pay-per-use storage model
-- Reduced local storage requirements
-
-### **Debugging & Analysis**
-- All processing artifacts preserved in structured format
-- Easy access to transcriptions and translations for quality analysis
-- Processing history maintained for troubleshooting
-
-## Configuration Requirements
-
-### **Environment Variables**
-```env
-# Required for GCS backend
-STORAGE_BACKEND=gcs
-GCS_BUCKET_NAME=your_bucket_name
-GOOGLE_CLOUD_PROJECT=your_project_id
-
-# Optional GCS settings
-GCS_ENABLE_LIFECYCLE=True
-GCS_TEMP_FILE_RETENTION_DAYS=7
-```
-
-### **Google Cloud Setup**
-1. Create a GCS bucket
-2. Set up authentication (service account or ADC)
-3. Enable Cloud Storage API
-4. Configure bucket permissions
-
-### **Backward Compatibility**
-- Default storage backend remains `local`
-- Existing local storage functionality preserved
-- Graceful fallback if GCS configuration fails
-
-## Usage Patterns
-
-### **Local Development**
-```env
-STORAGE_BACKEND=local
-```
-
-### **Production with GCS**
-```env
-STORAGE_BACKEND=gcs
-GCS_BUCKET_NAME=production-voiceover-bucket
-GOOGLE_CLOUD_PROJECT=my-project-id
-```
-
-### **Hybrid Mode**
-- Upload to GCS for persistence
-- Process locally for performance
-- Store outputs in GCS for distribution
-
-## Next Steps & Considerations
-
-### **Potential Enhancements**
-1. **Multi-region support** for global deployments
-2. **CDN integration** for faster file delivery
-3. **Batch processing** for multiple videos
-4. **Advanced analytics** on stored artifacts
-5. **Integration with Cloud Functions** for serverless processing
-
-### **Monitoring & Observability**
-- GCS access logs for usage tracking
-- Storage cost monitoring
-- Processing performance metrics
-- Error rate tracking
-
-### **Security Considerations**
-- Signed URLs provide time-limited access
-- Bucket-level IAM controls
-- Encryption at rest and in transit
-- Audit logging for compliance
-
-## Implementation Quality
+## Technical Excellence
 
 ### **Error Handling**
 - Comprehensive exception handling throughout
-- Graceful degradation when GCS unavailable
+- Graceful degradation on failures
 - Detailed logging for troubleshooting
 - User-friendly error messages
 
 ### **Performance**
-- Efficient file operations with streaming
-- Minimal memory footprint for large files
-- Parallel processing capabilities
-- Optimized for video file sizes
+- Unified client architecture
+- Efficient segment generation
+- Optimized file I/O operations
+- Smart caching and resource management
 
 ### **Maintainability**
 - Clean separation of concerns
-- Well-documented code with type hints
-- Consistent error handling patterns
-- Modular design for easy testing
+- Well-documented code
+- Modular architecture
+- Comprehensive type hints
 
-The Google Cloud Storage integration is now complete and production-ready, providing a robust, scalable file storage solution for the Gemini Video Voiceover Translator application.
+## Future Enhancements
+
+### **Potential Improvements**
+1. **Voice Cloning**: Use Gemini's voice cloning capabilities
+2. **Emotion Control**: Adjust voice emotion and style
+3. **Advanced Sync**: ML-based audio timing optimization
+4. **Batch Review**: Review multiple videos at once
+5. **A/B Testing**: Compare different voice options
+
+### **Monitoring**
+- Vertex AI quotas and usage tracking
+- Quality metrics dashboard
+- Processing time analytics
+- Error rate monitoring
+
+The system is now production-ready with a fully Vertex AI-powered pipeline, offering enterprise-grade security and reliability.

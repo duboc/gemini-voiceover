@@ -62,6 +62,7 @@ class VideoTranslator {
         const formData = new FormData();
         const fileInput = document.getElementById('video-file');
         const languageSelect = document.getElementById('language');
+        const ttsBackendSelect = document.getElementById('tts-backend');
         const voiceSelect = document.getElementById('voice');
         const processingModeSelect = document.getElementById('processing-mode');
         const separationModelSelect = document.getElementById('separation-model');
@@ -75,6 +76,7 @@ class VideoTranslator {
         // Prepare form data
         formData.append('video', fileInput.files[0]);
         formData.append('language', languageSelect.value);
+        formData.append('tts_backend', ttsBackendSelect.value);
         formData.append('voice', voiceSelect.value);
         formData.append('processing_mode', processingModeSelect.value);
         formData.append('separation_model', separationModelSelect.value);
@@ -137,6 +139,11 @@ class VideoTranslator {
                 this.updateProgress(status.progress, status.message);
                 break;
 
+            case 'awaiting_review':
+                this.stopStatusChecking();
+                this.showReviewSection();
+                break;
+
             case 'completed':
                 this.stopStatusChecking();
                 this.showSection('results-section');
@@ -151,6 +158,137 @@ class VideoTranslator {
             default:
                 this.updateProgress(status.progress || 0, status.message || 'Processing...');
         }
+    }
+
+    async showReviewSection() {
+        try {
+            // Fetch review data
+            const response = await fetch(`/api/review/${this.processId}`);
+            if (!response.ok) {
+                throw new Error('Failed to fetch review data');
+            }
+
+            const data = await response.json();
+            this.renderReviewData(data);
+            this.showSection('review-section');
+
+        } catch (error) {
+            this.showError('Failed to load review data: ' + error.message);
+        }
+    }
+
+    renderReviewData(data) {
+        const container = document.getElementById('review-content');
+        const transcription = data.transcription.transcription || [];
+        const translation = data.translation.transcription || [];
+        const targetLanguage = data.target_language;
+
+        let html = '<div class="row">';
+        
+        // Transcription column
+        html += '<div class="col-md-6">';
+        html += '<h4 class="mb-3"><i class="fas fa-microphone me-2"></i>Original Transcription</h4>';
+        html += '<div class="transcription-segments">';
+        
+        transcription.forEach((segment, index) => {
+            html += `
+                <div class="segment-card mb-3">
+                    <div class="segment-header">
+                        <span class="badge bg-secondary">#${index + 1}</span>
+                        <span class="text-muted ms-2">
+                            <i class="fas fa-clock me-1"></i>
+                            ${this.formatTime(segment.start_time)} - ${this.formatTime(segment.end_time)}
+                        </span>
+                    </div>
+                    <div class="segment-text mt-2">
+                        ${this.escapeHtml(segment.text)}
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += '</div></div>';
+        
+        // Translation column
+        html += '<div class="col-md-6">';
+        html += `<h4 class="mb-3"><i class="fas fa-language me-2"></i>Translation (${targetLanguage})</h4>`;
+        html += '<div class="translation-segments">';
+        
+        translation.forEach((segment, index) => {
+            html += `
+                <div class="segment-card mb-3">
+                    <div class="segment-header">
+                        <span class="badge bg-primary">#${index + 1}</span>
+                        <span class="text-muted ms-2">
+                            <i class="fas fa-clock me-1"></i>
+                            ${this.formatTime(segment.start_time)} - ${this.formatTime(segment.end_time)}
+                        </span>
+                    </div>
+                    <div class="segment-text mt-2">
+                        <textarea class="form-control segment-edit" 
+                                  data-index="${index}" 
+                                  rows="2">${this.escapeHtml(segment.text)}</textarea>
+                    </div>
+                </div>
+            `;
+        });
+        
+        html += '</div></div>';
+        html += '</div>';
+        
+        container.innerHTML = html;
+        
+        // Store translation data for later use
+        this.currentTranslationData = data.translation;
+    }
+
+    async approveTranslation() {
+        try {
+            // Collect edited translations
+            const editedSegments = document.querySelectorAll('.segment-edit');
+            const translationData = { ...this.currentTranslationData };
+            
+            editedSegments.forEach((textarea, index) => {
+                if (translationData.transcription[index]) {
+                    translationData.transcription[index].text = textarea.value;
+                }
+            });
+
+            // Send approval with updated translation
+            const response = await fetch(`/api/approve/${this.processId}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    translation: translationData
+                })
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to approve translation');
+            }
+
+            // Show processing section and resume status checking
+            this.showSection('processing-section');
+            this.updateProgress(65, 'Translation approved! Generating speech...');
+            this.startStatusChecking();
+
+        } catch (error) {
+            this.showError('Failed to approve translation: ' + error.message);
+        }
+    }
+
+    formatTime(seconds) {
+        const mins = Math.floor(seconds / 60);
+        const secs = Math.floor(seconds % 60);
+        return `${mins}:${secs.toString().padStart(2, '0')}`;
+    }
+
+    escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
     }
 
     updateProgress(progress, message) {
@@ -192,6 +330,7 @@ class VideoTranslator {
         const sections = [
             'upload-section',
             'processing-section',
+            'review-section',
             'results-section',
             'error-section'
         ];
@@ -320,16 +459,61 @@ class VideoTranslator {
     // Show visual feedback when voices are updated
     showVoiceUpdateFeedback(languageName) {
         const voiceSelect = document.getElementById('voice');
-        const formText = voiceSelect.parentElement.querySelector('.form-text');
+        const formText = voiceSelect.parentElement.querySelector('#voice-help');
         
         if (formText) {
             const originalText = formText.textContent;
-            formText.innerHTML = `<span class="text-success"><i class="fas fa-check me-1"></i>Updated voices for ${languageName}</span>`;
+            formText.innerHTML = `<span class="text-success"><i class="fas fa-check me-1"></i>Updated for ${languageName}</span>`;
             
             // Reset text after 3 seconds
             setTimeout(() => {
                 formText.textContent = originalText;
             }, 3000);
+        }
+    }
+    
+    // Update voices based on TTS backend and language
+    async updateVoicesForBackend(ttsBackend, languageCode) {
+        const voiceSelect = document.getElementById('voice');
+        const cacheKey = `${ttsBackend}_${languageCode}`;
+        
+        try {
+            // Check if we have cached data for this combo
+            if (!this.voicesData[cacheKey]) {
+                // Fetch voices for the selected backend and language
+                const response = await fetch(`/api/voices/${ttsBackend}/${languageCode}`);
+                if (!response.ok) {
+                    throw new Error('Failed to fetch voices');
+                }
+                this.voicesData[cacheKey] = await response.json();
+            }
+
+            const data = this.voicesData[cacheKey];
+            
+            // Clear current voice options
+            voiceSelect.innerHTML = '';
+            
+            // Add voice options
+            Object.entries(data.voices).forEach(([voiceId, voiceName]) => {
+                const option = document.createElement('option');
+                option.value = voiceId;
+                option.textContent = voiceName;
+                
+                // Select default voice
+                if (voiceId === data.default_voice) {
+                    option.selected = true;
+                }
+                
+                voiceSelect.appendChild(option);
+            });
+
+            // Add visual feedback
+            this.showVoiceUpdateFeedback(data.language_name);
+
+        } catch (error) {
+            console.error('Error updating voices for backend:', error);
+            // Fallback: show error in voice select
+            voiceSelect.innerHTML = '<option value="">Error loading voices</option>';
         }
     }
 }
@@ -341,7 +525,17 @@ let videoTranslatorInstance = null;
 function updateVoiceOptions() {
     if (videoTranslatorInstance) {
         const languageSelect = document.getElementById('language');
-        videoTranslatorInstance.updateVoiceOptions(languageSelect.value);
+        const ttsBackendSelect = document.getElementById('tts-backend');
+        videoTranslatorInstance.updateVoicesForBackend(ttsBackendSelect.value, languageSelect.value);
+    }
+}
+
+// Global function for updating TTS backend (called from HTML)
+function updateTTSBackend() {
+    if (videoTranslatorInstance) {
+        const languageSelect = document.getElementById('language');
+        const ttsBackendSelect = document.getElementById('tts-backend');
+        videoTranslatorInstance.updateVoicesForBackend(ttsBackendSelect.value, languageSelect.value);
     }
 }
 

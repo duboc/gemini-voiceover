@@ -27,7 +27,7 @@ class Config:
     # Gemini Model Configuration
     TRANSCRIPTION_MODEL = os.getenv('TRANSCRIPTION_MODEL', 'gemini-2.5-flash')
     TRANSLATION_MODEL = os.getenv('TRANSLATION_MODEL', 'gemini-2.5-flash')
-    TTS_MODEL = os.getenv('TTS_MODEL', 'gemini-2.5-pro-preview-tts')
+    GEMINI_TTS_MODEL = os.getenv('GEMINI_TTS_MODEL', 'gemini-2.5-flash-tts')
     
     # Supported formats and languages
     ALLOWED_VIDEO_EXTENSIONS = {'mp4', 'mov'}
@@ -46,125 +46,205 @@ class Config:
         'zh-CN': 'Chinese (Mandarin, China)'
     }
     
-    # Available TTS voices (Google Cloud Chirp v3)
+    # TTS Backend Configuration
+    TTS_BACKEND = os.getenv('TTS_BACKEND', 'gemini')  # Options: gemini, chirp3
+    
+    # TTS Backend Options (for UI)
+    TTS_BACKENDS = {
+        'gemini': 'Gemini 2.5 Flash TTS (Modern, Universal)',
+        'chirp3': 'Vertex AI Chirp 3 HD (Premium Quality)'
+    }
+    
+    # Available Gemini TTS voices (all languages supported)
+    GEMINI_VOICES = {
+        'Zephyr': 'Zephyr (Natural, Balanced)',
+        'Puck': 'Puck (Warm, Friendly)',
+        'Charon': 'Charon (Professional, Clear)',
+        'Kore': 'Kore (Friendly, Energetic)',
+        'Fenrir': 'Fenrir (Deep, Authoritative)',
+        'Aoede': 'Aoede (Smooth, Pleasant)'
+    }
+    
+    # Default Gemini voice
+    DEFAULT_GEMINI_VOICE = 'Zephyr'
+    
+    # Chirp 3 HD Voices (language-specific)
+    # Follows pattern: [language_code]-Chirp3-HD-[VoiceName]
+    # Using same personas as Gemini: Zephyr, Puck, Charon, Kore, Fenrir, Aoede
+    CHIRP3_VOICES = {}
+    DEFAULT_CHIRP3_VOICES = {}
+    
+    # Helper to populate Chirp 3 voices
+    _PERSONAS = {
+        'Zephyr': 'Zephyr (Natural, Balanced)',
+        'Puck': 'Puck (Warm, Friendly)',
+        'Charon': 'Charon (Professional, Clear)',
+        'Kore': 'Kore (Friendly, Energetic)',
+        'Fenrir': 'Fenrir (Deep, Authoritative)',
+        'Aoede': 'Aoede (Smooth, Pleasant)'
+    }
+    
+    # Initialize voices for all supported languages
+    _LANGS = [
+        'en-US', 'pt-BR', 'es-ES', 'fr-FR', 'de-DE', 
+        'it-IT', 'ja-JP', 'ko-KR', 'nl-NL', 'pl-PL', 
+        'ru-RU', 'zh-CN'
+    ]
+    
+    for lang in _LANGS:
+        CHIRP3_VOICES[lang] = {}
+        for persona, desc in _PERSONAS.items():
+            voice_id = f"{lang}-Chirp3-HD-{persona}"
+            CHIRP3_VOICES[lang][voice_id] = f"{persona} (Chirp 3 HD)"
+        
+        # Set default
+        DEFAULT_CHIRP3_VOICES[lang] = f"{lang}-Chirp3-HD-Zephyr"
+    
+    # Legacy Google Cloud TTS voices (kept for backward compatibility)
     AVAILABLE_VOICES = {
         'en-US': {
-            'en-US-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
-            'en-US-Chirp3-HD-Puck': 'Puck (Warm)',
-            'en-US-Chirp3-HD-Charon': 'Charon (Professional)',
-            'en-US-Chirp3-HD-Kore': 'Kore (Friendly)',
-            'en-US-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
-            'en-US-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+            'Zephyr': 'Zephyr (Recommended)',
+            'Puck': 'Puck (Warm)',
+            'Charon': 'Charon (Professional)',
+            'Kore': 'Kore (Friendly)',
+            'Fenrir': 'Fenrir (Deep)',
+            'Aoede': 'Aoede (Smooth)'
         },
         'pt-BR': {
-            'pt-BR-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
-            'pt-BR-Chirp3-HD-Puck': 'Puck (Warm)',
-            'pt-BR-Chirp3-HD-Charon': 'Charon (Professional)',
-            'pt-BR-Chirp3-HD-Kore': 'Kore (Friendly)',
-            'pt-BR-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
-            'pt-BR-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+            'Zephyr': 'Zephyr (Recommended)',
+            'Puck': 'Puck (Warm)',
+            'Charon': 'Charon (Professional)',
+            'Kore': 'Kore (Friendly)',
+            'Fenrir': 'Fenrir (Deep)',
+            'Aoede': 'Aoede (Smooth)'
         },
         'es-ES': {
-            'es-ES-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
-            'es-ES-Chirp3-HD-Puck': 'Puck (Warm)',
-            'es-ES-Chirp3-HD-Charon': 'Charon (Professional)',
-            'es-ES-Chirp3-HD-Kore': 'Kore (Friendly)',
-            'es-ES-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
-            'es-ES-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+            'Zephyr': 'Zephyr (Recommended)',
+            'Puck': 'Puck (Warm)',
+            'Charon': 'Charon (Professional)',
+            'Kore': 'Kore (Friendly)',
+            'Fenrir': 'Fenrir (Deep)',
+            'Aoede': 'Aoede (Smooth)'
         },
         'fr-FR': {
-            'fr-FR-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
-            'fr-FR-Chirp3-HD-Puck': 'Puck (Warm)',
-            'fr-FR-Chirp3-HD-Charon': 'Charon (Professional)',
-            'fr-FR-Chirp3-HD-Kore': 'Kore (Friendly)',
-            'fr-FR-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
-            'fr-FR-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+            'Zephyr': 'Zephyr (Recommended)',
+            'Puck': 'Puck (Warm)',
+            'Charon': 'Charon (Professional)',
+            'Kore': 'Kore (Friendly)',
+            'Fenrir': 'Fenrir (Deep)',
+            'Aoede': 'Aoede (Smooth)'
         },
         'de-DE': {
-            'de-DE-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
-            'de-DE-Chirp3-HD-Puck': 'Puck (Warm)',
-            'de-DE-Chirp3-HD-Charon': 'Charon (Professional)',
-            'de-DE-Chirp3-HD-Kore': 'Kore (Friendly)',
-            'de-DE-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
-            'de-DE-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+            'Zephyr': 'Zephyr (Recommended)',
+            'Puck': 'Puck (Warm)',
+            'Charon': 'Charon (Professional)',
+            'Kore': 'Kore (Friendly)',
+            'Fenrir': 'Fenrir (Deep)',
+            'Aoede': 'Aoede (Smooth)'
         },
         'it-IT': {
-            'it-IT-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
-            'it-IT-Chirp3-HD-Puck': 'Puck (Warm)',
-            'it-IT-Chirp3-HD-Charon': 'Charon (Professional)',
-            'it-IT-Chirp3-HD-Kore': 'Kore (Friendly)',
-            'it-IT-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
-            'it-IT-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+            'Zephyr': 'Zephyr (Recommended)',
+            'Puck': 'Puck (Warm)',
+            'Charon': 'Charon (Professional)',
+            'Kore': 'Kore (Friendly)',
+            'Fenrir': 'Fenrir (Deep)',
+            'Aoede': 'Aoede (Smooth)'
         },
         'ja-JP': {
-            'ja-JP-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
-            'ja-JP-Chirp3-HD-Puck': 'Puck (Warm)',
-            'ja-JP-Chirp3-HD-Charon': 'Charon (Professional)',
-            'ja-JP-Chirp3-HD-Kore': 'Kore (Friendly)',
-            'ja-JP-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
-            'ja-JP-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+            'Zephyr': 'Zephyr (Recommended)',
+            'Puck': 'Puck (Warm)',
+            'Charon': 'Charon (Professional)',
+            'Kore': 'Kore (Friendly)',
+            'Fenrir': 'Fenrir (Deep)',
+            'Aoede': 'Aoede (Smooth)'
         },
         'ko-KR': {
-            'ko-KR-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
-            'ko-KR-Chirp3-HD-Puck': 'Puck (Warm)',
-            'ko-KR-Chirp3-HD-Charon': 'Charon (Professional)',
-            'ko-KR-Chirp3-HD-Kore': 'Kore (Friendly)',
-            'ko-KR-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
-            'ko-KR-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+            'Zephyr': 'Zephyr (Recommended)',
+            'Puck': 'Puck (Warm)',
+            'Charon': 'Charon (Professional)',
+            'Kore': 'Kore (Friendly)',
+            'Fenrir': 'Fenrir (Deep)',
+            'Aoede': 'Aoede (Smooth)'
         },
         'nl-NL': {
-            'nl-NL-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
-            'nl-NL-Chirp3-HD-Puck': 'Puck (Warm)',
-            'nl-NL-Chirp3-HD-Charon': 'Charon (Professional)',
-            'nl-NL-Chirp3-HD-Kore': 'Kore (Friendly)',
-            'nl-NL-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
-            'nl-NL-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+            'Zephyr': 'Zephyr (Recommended)',
+            'Puck': 'Puck (Warm)',
+            'Charon': 'Charon (Professional)',
+            'Kore': 'Kore (Friendly)',
+            'Fenrir': 'Fenrir (Deep)',
+            'Aoede': 'Aoede (Smooth)'
         },
         'pl-PL': {
-            'pl-PL-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
-            'pl-PL-Chirp3-HD-Puck': 'Puck (Warm)',
-            'pl-PL-Chirp3-HD-Charon': 'Charon (Professional)',
-            'pl-PL-Chirp3-HD-Kore': 'Kore (Friendly)',
-            'pl-PL-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
-            'pl-PL-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+            'Zephyr': 'Zephyr (Recommended)',
+            'Puck': 'Puck (Warm)',
+            'Charon': 'Charon (Professional)',
+            'Kore': 'Kore (Friendly)',
+            'Fenrir': 'Fenrir (Deep)',
+            'Aoede': 'Aoede (Smooth)'
         },
         'ru-RU': {
-            'ru-RU-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
-            'ru-RU-Chirp3-HD-Puck': 'Puck (Warm)',
-            'ru-RU-Chirp3-HD-Charon': 'Charon (Professional)',
-            'ru-RU-Chirp3-HD-Kore': 'Kore (Friendly)',
-            'ru-RU-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
-            'ru-RU-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+            'Zephyr': 'Zephyr (Recommended)',
+            'Puck': 'Puck (Warm)',
+            'Charon': 'Charon (Professional)',
+            'Kore': 'Kore (Friendly)',
+            'Fenrir': 'Fenrir (Deep)',
+            'Aoede': 'Aoede (Smooth)'
         },
         'zh-CN': {
-            'zh-CN-Chirp3-HD-Zephyr': 'Zephyr (Recommended)',
-            'zh-CN-Chirp3-HD-Puck': 'Puck (Warm)',
-            'zh-CN-Chirp3-HD-Charon': 'Charon (Professional)',
-            'zh-CN-Chirp3-HD-Kore': 'Kore (Friendly)',
-            'zh-CN-Chirp3-HD-Fenrir': 'Fenrir (Deep)',
-            'zh-CN-Chirp3-HD-Aoede': 'Aoede (Smooth)'
+            'Zephyr': 'Zephyr (Recommended)',
+            'Puck': 'Puck (Warm)',
+            'Charon': 'Charon (Professional)',
+            'Kore': 'Kore (Friendly)',
+            'Fenrir': 'Fenrir (Deep)',
+            'Aoede': 'Aoede (Smooth)'
         }
     }
     
     # Default voices for each language
     DEFAULT_VOICES = {
-        'en-US': 'en-US-Chirp3-HD-Zephyr',
-        'pt-BR': 'pt-BR-Chirp3-HD-Zephyr',
-        'es-ES': 'es-ES-Chirp3-HD-Zephyr',
-        'fr-FR': 'fr-FR-Chirp3-HD-Zephyr',
-        'de-DE': 'de-DE-Chirp3-HD-Zephyr',
-        'it-IT': 'it-IT-Chirp3-HD-Zephyr',
-        'ja-JP': 'ja-JP-Chirp3-HD-Zephyr',
-        'ko-KR': 'ko-KR-Chirp3-HD-Zephyr',
-        'nl-NL': 'nl-NL-Chirp3-HD-Zephyr',
-        'pl-PL': 'pl-PL-Chirp3-HD-Zephyr',
-        'ru-RU': 'ru-RU-Chirp3-HD-Zephyr',
-        'zh-CN': 'zh-CN-Chirp3-HD-Zephyr'
+        'en-US': 'Zephyr',
+        'pt-BR': 'Zephyr',
+        'es-ES': 'Zephyr',
+        'fr-FR': 'Zephyr',
+        'de-DE': 'Zephyr',
+        'it-IT': 'Zephyr',
+        'ja-JP': 'Zephyr',
+        'ko-KR': 'Zephyr',
+        'nl-NL': 'Zephyr',
+        'pl-PL': 'Zephyr',
+        'ru-RU': 'Zephyr',
+        'zh-CN': 'Zephyr'
     }
     
-    # Google Cloud TTS Configuration
+    # Google Cloud TTS Configuration (legacy - kept for backward compatibility)
     GOOGLE_CLOUD_PROJECT = os.getenv('GOOGLE_CLOUD_PROJECT')
     TTS_SPEAKING_RATE = float(os.getenv('TTS_SPEAKING_RATE', '1.0'))  # 0.25 to 2.0
+    
+    # Audio Synchronization Configuration
+    ENABLE_AUDIO_SYNC = os.getenv('ENABLE_AUDIO_SYNC', 'True').lower() == 'true'
+    MAX_TIMING_DIFFERENCE_SEC = float(os.getenv('MAX_TIMING_DIFFERENCE_SEC', '0.5'))
+    SYNC_METHOD = os.getenv('SYNC_METHOD', 'stretch')  # Options: stretch, pad, trim, tempo_only
+    PRESERVE_TOTAL_DURATION = os.getenv('PRESERVE_TOTAL_DURATION', 'True').lower() == 'true'  # Prevent duration extension
+    
+    # TTS Rate Limiting & Batching Configuration
+    TTS_BATCH_SIZE = int(os.getenv('TTS_BATCH_SIZE', '10'))  # Number of segments per API call
+    TTS_MAX_TEXT_LENGTH = int(os.getenv('TTS_MAX_TEXT_LENGTH', '2000'))  # Max characters per batch
+    TTS_RATE_LIMIT_DELAY = float(os.getenv('TTS_RATE_LIMIT_DELAY', '6.5'))  # Delay between batches (seconds)
+    TTS_MAX_RETRIES = int(os.getenv('TTS_MAX_RETRIES', '5'))  # Max retry attempts for rate limiting
+    TTS_ENABLE_BATCHING = os.getenv('TTS_ENABLE_BATCHING', 'True').lower() == 'true'  # Enable segment batching
+    
+    # Smart Batching Configuration (for 30-second chunks)
+    TTS_BATCH_DURATION_SEC = float(os.getenv('TTS_BATCH_DURATION_SEC', '30.0'))  # Target duration for combined segments
+    TTS_SMART_BATCHING = os.getenv('TTS_SMART_BATCHING', 'True').lower() == 'true'  # Enable intelligent text combination
+    TTS_MIN_BATCH_SEGMENTS = int(os.getenv('TTS_MIN_BATCH_SEGMENTS', '3'))  # Minimum segments to combine
+    
+    # Duration Management Configuration
+    ENFORCE_ORIGINAL_DURATION = os.getenv('ENFORCE_ORIGINAL_DURATION', 'True').lower() == 'true'  # Ensure audio fits video
+    DURATION_TOLERANCE_SEC = float(os.getenv('DURATION_TOLERANCE_SEC', '1.0'))  # Acceptable duration difference
+    MAX_DURATION_ADJUSTMENT_ATTEMPTS = int(os.getenv('MAX_DURATION_ADJUSTMENT_ATTEMPTS', '3'))  # Max retries
+    ALLOW_TEXT_SHORTENING = os.getenv('ALLOW_TEXT_SHORTENING', 'True').lower() == 'true'  # Allow Gemini to shorten text
+    MIN_SPEAKING_RATE = float(os.getenv('MIN_SPEAKING_RATE', '0.85'))  # Minimum tempo (85% speed)
+    MAX_SPEAKING_RATE = float(os.getenv('MAX_SPEAKING_RATE', '1.15'))  # Maximum tempo (115% speed)
     
     # Google Cloud Storage Configuration
     GCS_BUCKET_NAME = os.getenv('GCS_BUCKET_NAME')
@@ -195,15 +275,24 @@ class Config:
     @staticmethod
     def validate_config():
         """Validate that required configuration is present"""
-        if not Config.GEMINI_API_KEY:
-            raise ValueError("GEMINI_API_KEY is required. Please set it in your .env file.")
+        # Google Cloud Project is required for Vertex AI (Gemini & TTS)
+        if not Config.GOOGLE_CLOUD_PROJECT:
+            # Try to get from default environment
+            import google.auth
+            try:
+                _, project = google.auth.default()
+                if project:
+                    Config.GOOGLE_CLOUD_PROJECT = project
+            except:
+                pass
+                
+            if not Config.GOOGLE_CLOUD_PROJECT:
+                raise ValueError("GOOGLE_CLOUD_PROJECT is required for Vertex AI. Please set it in your .env file or ensure ADC is configured.")
         
         # Validate GCS configuration if using GCS storage
         if Config.STORAGE_BACKEND == 'gcs':
             if not Config.GCS_BUCKET_NAME:
                 raise ValueError("GCS_BUCKET_NAME is required when using GCS storage backend. Please set it in your .env file.")
-            if not Config.GOOGLE_CLOUD_PROJECT:
-                raise ValueError("GOOGLE_CLOUD_PROJECT is required when using GCS storage backend. Please set it in your .env file.")
         
         # Create necessary directories (always needed for local temp processing)
         for folder in [Config.UPLOAD_FOLDER, Config.TEMP_FOLDER, Config.OUTPUT_FOLDER]:

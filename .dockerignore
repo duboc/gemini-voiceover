@@ -1,0 +1,16 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.DS_Store
+.git
+.gitignore
+.vscode
+memory-bank/
+static/uploads/*
+static/temp/*
+static/outputs/*
+!static/uploads/.gitkeep
+!static/temp/.gitkeep
+!static/outputs/.gitkeep

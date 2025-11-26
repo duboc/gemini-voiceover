@@ -10,5 +10,6 @@ librosa>=0.8.0
 soundfile>=0.10.0
 numpy>=1.19.0
 scipy>=1.7.0
-google-cloud-texttospeech>=2.16.0
+google-cloud-texttospeech>=2.32.0
 google-cloud-storage>=2.10.0
+gunicorn>=20.1.0

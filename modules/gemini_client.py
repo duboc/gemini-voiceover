@@ -8,6 +8,7 @@ from typing import Dict, List, Optional, Tuple
 from google import genai
 from google.genai import types
 from config import Config
+from modules.error_handler import GeminiErrorHandler
 
 # Set up logging
 logger = logging.getLogger(__name__)
@@ -15,10 +16,40 @@ logger = logging.getLogger(__name__)
 
 class GeminiClient:
     def __init__(self):
-        self.client = genai.Client(api_key=Config.GEMINI_API_KEY)
+        """Initialize Gemini Client using Vertex AI (ADC)"""
+        try:
+            # Use Vertex AI with ADC
+            # Assuming us-central1 if not specified, though ideally should be configurable
+            location = os.getenv('GOOGLE_CLOUD_LOCATION', 'us-central1')
+            project = Config.GOOGLE_CLOUD_PROJECT
+            
+            if not project:
+                # Try to get from default environment if not in Config
+                import google.auth
+                _, project = google.auth.default()
+            
+            logger.info(f"Initializing Gemini Client with Vertex AI (Project: {project}, Location: {location})")
+            
+            self.client = genai.Client(
+                vertexai=True,
+                project=project,
+                location=location
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize Gemini Client with Vertex AI: {e}")
+            raise Exception(f"Gemini Client initialization failed: {str(e)}")
     
-    def transcribe_audio(self, audio_file_path: str) -> Dict:
-        """Transcribe audio file and return timestamped JSON"""
+    def transcribe_audio(self, audio_file_path: str, video_file_path: str = None) -> Dict:
+        """
+        Transcribe audio file with optional video context for better accuracy
+        
+        Args:
+            audio_file_path: Path to audio file
+            video_file_path: Optional path to video file for visual context
+            
+        Returns:
+            Dictionary with timestamped transcription
+        """
         try:
             # Read audio file
             with open(audio_file_path, 'rb') as f:
@@ -26,28 +57,58 @@ class GeminiClient:
             
             mime_type = mimetypes.guess_type(audio_file_path)[0] or 'audio/wav'
             
+            # Define response schema for controlled generation
+            response_schema = {
+                "type": "OBJECT",
+                "properties": {
+                    "transcription": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "start_time": {"type": "NUMBER"},
+                                "end_time": {"type": "NUMBER"},
+                                "text": {"type": "STRING"}
+                            },
+                            "required": ["start_time", "end_time", "text"]
+                        }
+                    }
+                },
+                "required": ["transcription"]
+            }
+            
             # Create prompt for timestamped transcription
-            prompt = ("Please transcribe this audio file and return the result as a JSON object "
-                     "with timestamps. Use this structure: "
-                     '{"transcription": [{"start_time": 0.0, "end_time": 5.2, "text": "segment text"}]} '
-                     "Include precise timestamps in seconds. Return only valid JSON.")
+            prompt = ("Please transcribe this audio/video file and provide timestamped segments. "
+                     "Include precise start_time and end_time in seconds for each segment of speech. "
+                     "Break the transcription into natural speech segments (typically 3-10 seconds each). "
+                     "Ensure all text is accurately transcribed.")
+            
+            # Build content parts
+            parts = [types.Part.from_text(text=prompt)]
+            
+            # Add video if available for better context
+            if video_file_path and os.path.exists(video_file_path):
+                logger.info("Adding video context for improved transcription accuracy")
+                with open(video_file_path, 'rb') as f:
+                    video_data = f.read()
+                video_mime = mimetypes.guess_type(video_file_path)[0] or 'video/mp4'
+                parts.append(types.Part.from_bytes(data=video_data, mime_type=video_mime))
+            else:
+                # Add audio
+                parts.append(types.Part.from_bytes(data=audio_data, mime_type=mime_type))
             
             contents = [
                 types.Content(
                     role="user",
-                    parts=[
-                        types.Part.from_text(text=prompt),
-                        types.Part.from_bytes(
-                            data=audio_data,
-                            mime_type=mime_type
-                        )
-                    ],
+                    parts=parts,
                 ),
             ]
             
+            # Use controlled generation with response schema
             config = types.GenerateContentConfig(
                 temperature=0.1,
                 response_mime_type="application/json",
+                response_schema=response_schema,
             )
             
             response = self.client.models.generate_content(
@@ -56,28 +117,70 @@ class GeminiClient:
                 config=config,
             )
             
-            # Clean and parse JSON response
-            transcription_data = self._parse_json_response(response.text, "transcription")
+            # Parse JSON response (should be clean with schema)
+            transcription_data = json.loads(response.text)
+            
+            # Add confidence score if available
+            transcription_data['quality_score'] = self._estimate_transcription_quality(transcription_data)
+            
             return transcription_data
             
+        except json.JSONDecodeError as e:
+            logger.error(f"JSON parsing failed even with schema: {e}")
+            # Check if response exists before accessing it
+            if 'response' in locals():
+                logger.error(f"Response text: {response.text[:1000]}...")
+                # Fallback to manual parsing if schema didn't work
+                transcription_data = self._parse_json_response(response.text, "transcription")
+                transcription_data['quality_score'] = self._estimate_transcription_quality(transcription_data)
+                return transcription_data
+            else:
+                raise
         except Exception as e:
-            raise Exception(f"Transcription failed: {str(e)}")
+            GeminiErrorHandler.handle_gemini_error(e, "Transcription")
     
     def translate_text(self, transcription_data: Dict, target_language: str) -> Dict:
-        """Translate transcription data to target language"""
+        """Translate transcription data to target language with controlled generation"""
         try:
             language_names = {
                 'pt-BR': 'Brazilian Portuguese',
-                'es': 'Spanish'
+                'es-ES': 'Spanish',
+                'es': 'Spanish',
+                'en-US': 'English',
+                'fr-FR': 'French',
+                'de-DE': 'German',
+                'it-IT': 'Italian',
+                'ja-JP': 'Japanese',
+                'ko-KR': 'Korean'
             }
             
             target_lang_name = language_names.get(target_language, target_language)
             
-            prompt = (f"Please translate the following transcription data to {target_lang_name}. "
-                     f"Maintain the exact same JSON structure and timestamps, only translate the text content. "
-                     f"Input JSON: {json.dumps(transcription_data, indent=2)} "
-                     f"Return the translated version with the same structure. "
-                     f"Keep all timestamps exactly the same. Return only valid JSON.")
+            # Define response schema for controlled generation
+            response_schema = {
+                "type": "OBJECT",
+                "properties": {
+                    "transcription": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "start_time": {"type": "NUMBER"},
+                                "end_time": {"type": "NUMBER"},
+                                "text": {"type": "STRING"}
+                            },
+                            "required": ["start_time", "end_time", "text"]
+                        }
+                    }
+                },
+                "required": ["transcription"]
+            }
+            
+            prompt = (f"Translate the following transcription segments to {target_lang_name}. "
+                     f"Keep the EXACT same start_time and end_time values. "
+                     f"Only translate the 'text' field content. "
+                     f"Preserve natural language flow and meaning.\n\n"
+                     f"Input transcription:\n{json.dumps(transcription_data, indent=2, ensure_ascii=False)}")
             
             contents = [
                 types.Content(
@@ -88,9 +191,11 @@ class GeminiClient:
                 ),
             ]
             
+            # Use controlled generation with response schema
             config = types.GenerateContentConfig(
                 temperature=0.2,
                 response_mime_type="application/json",
+                response_schema=response_schema,
             )
             
             response = self.client.models.generate_content(
@@ -99,140 +204,23 @@ class GeminiClient:
                 config=config,
             )
             
-            # Clean and parse JSON response
-            translation_data = self._parse_json_response(response.text, "translation")
+            # Parse JSON response (should be clean with schema)
+            translation_data = json.loads(response.text)
             return translation_data
             
+        except json.JSONDecodeError as e:
+            logger.error(f"Translation JSON parsing failed even with schema: {e}")
+            if 'response' in locals():
+                logger.error(f"Response text: {response.text[:1000]}...")
+                # Fallback to manual parsing if schema didn't work
+                translation_data = self._parse_json_response(response.text, "translation")
+                return translation_data
+            else:
+                raise
         except Exception as e:
-            raise Exception(f"Translation failed: {str(e)}")
+            GeminiErrorHandler.handle_gemini_error(e, "Translation")
     
-    def generate_speech(self, translation_data: Dict, voice_name: str, output_dir: str) -> List[str]:
-        """Generate speech from translated text segments"""
-        try:
-            logger.info(f"Generating speech with voice '{voice_name}' for {len(translation_data['transcription'])} segments")
-            audio_files = []
-            
-            for i, segment in enumerate(translation_data['transcription']):
-                text = segment['text']
-                start_time = segment['start_time']
-                end_time = segment['end_time']
-                
-                logger.info(f"Generating speech for segment {i}: '{text[:50]}...' ({start_time:.1f}s - {end_time:.1f}s)")
-                
-                contents = [
-                    types.Content(
-                        role="user",
-                        parts=[
-                            types.Part.from_text(text=text),
-                        ],
-                    ),
-                ]
-                
-                config = types.GenerateContentConfig(
-                    temperature=0.8,
-                    response_modalities=["audio"],
-                    speech_config=types.SpeechConfig(
-                        voice_config=types.VoiceConfig(
-                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                voice_name=voice_name
-                            )
-                        ),
-                    ),
-                )
-                
-                audio_data = b""
-                chunk_count = 0
-                for chunk in self.client.models.generate_content_stream(
-                    model=Config.TTS_MODEL,
-                    contents=contents,
-                    config=config,
-                ):
-                    chunk_count += 1
-                    if (chunk.candidates and 
-                        chunk.candidates[0].content and 
-                        chunk.candidates[0].content.parts and
-                        chunk.candidates[0].content.parts[0].inline_data):
-                        
-                        inline_data = chunk.candidates[0].content.parts[0].inline_data
-                        if inline_data.data:
-                            audio_data += inline_data.data
-                
-                logger.info(f"Received {chunk_count} chunks, total audio data: {len(audio_data)} bytes")
-                
-                if audio_data:
-                    filename = f"segment_{i:03d}_{start_time:.1f}_{end_time:.1f}.wav"
-                    filepath = os.path.join(output_dir, filename)
-                    
-                    if not audio_data.startswith(b'RIFF'):
-                        logger.info(f"Converting audio data to WAV format for segment {i}")
-                        audio_data = self._convert_to_wav(audio_data, "audio/L16;rate=24000")
-                    
-                    with open(filepath, 'wb') as f:
-                        f.write(audio_data)
-                    
-                    logger.info(f"Saved audio segment {i} to: {filepath} ({len(audio_data)} bytes)")
-                    audio_files.append(filepath)
-                else:
-                    logger.warning(f"No audio data received for segment {i}: '{text}'")
-            
-            logger.info(f"Speech generation completed: {len(audio_files)} files generated")
-            return audio_files
-            
-        except Exception as e:
-            logger.error(f"Speech generation failed: {str(e)}", exc_info=True)
-            raise Exception(f"Speech generation failed: {str(e)}")
-    
-    def _convert_to_wav(self, audio_data: bytes, mime_type: str) -> bytes:
-        """Convert audio data to WAV format"""
-        parameters = self._parse_audio_mime_type(mime_type)
-        bits_per_sample = parameters["bits_per_sample"]
-        sample_rate = parameters["rate"]
-        num_channels = 1
-        data_size = len(audio_data)
-        bytes_per_sample = bits_per_sample // 8
-        block_align = num_channels * bytes_per_sample
-        byte_rate = sample_rate * block_align
-        chunk_size = 36 + data_size
-        
-        header = struct.pack(
-            "<4sI4s4sIHHIIHH4sI",
-            b"RIFF",
-            chunk_size,
-            b"WAVE",
-            b"fmt ",
-            16,
-            1,
-            num_channels,
-            sample_rate,
-            byte_rate,
-            block_align,
-            bits_per_sample,
-            b"data",
-            data_size
-        )
-        return header + audio_data
-    
-    def _parse_audio_mime_type(self, mime_type: str) -> Dict[str, int]:
-        """Parse audio MIME type for format parameters"""
-        bits_per_sample = 16
-        rate = 24000
-        
-        parts = mime_type.split(";")
-        for param in parts:
-            param = param.strip()
-            if param.lower().startswith("rate="):
-                try:
-                    rate_str = param.split("=", 1)[1]
-                    rate = int(rate_str)
-                except (ValueError, IndexError):
-                    pass
-            elif param.startswith("audio/L"):
-                try:
-                    bits_per_sample = int(param.split("L", 1)[1])
-                except (ValueError, IndexError):
-                    pass
-        
-        return {"bits_per_sample": bits_per_sample, "rate": rate}
+    # Note: generate_speech method removed as it is now handled by GoogleTTSClient (Vertex AI)
     
     def _parse_json_response(self, response_text: str, operation: str) -> Dict:
         """Parse JSON response with error handling and cleanup"""
@@ -291,7 +279,9 @@ class GeminiClient:
             raise Exception(f"Failed to parse {operation} response: {str(e)}")
     
     def _clean_json_response(self, text: str) -> str:
-        """Clean common JSON formatting issues"""
+        """Clean common JSON formatting issues while preserving structure"""
+        import re
+        
         # Remove any text before the first {
         start_idx = text.find('{')
         if start_idx > 0:
@@ -302,14 +292,12 @@ class GeminiClient:
         if end_idx > 0:
             text = text[:end_idx + 1]
         
-        # Fix common issues
-        text = text.replace('\n', ' ')  # Remove newlines
-        text = text.replace('\r', ' ')  # Remove carriage returns
-        text = text.replace('\t', ' ')  # Remove tabs
-        
-        # Fix trailing commas
-        import re
+        # Fix trailing commas (but preserve structure)
         text = re.sub(r',(\s*[}\]])', r'\1', text)
+        
+        # Remove any markdown artifacts
+        text = re.sub(r'```json\s*', '', text)
+        text = re.sub(r'```\s*', '', text)
         
         return text.strip()
     
@@ -360,3 +348,212 @@ class GeminiClient:
         text = re.sub(r',(\s*[}\]])', r'\1', text)
         
         return text.strip()
+    
+    def _estimate_transcription_quality(self, transcription_data: Dict) -> float:
+        """
+        Estimate quality of transcription based on various factors
+        
+        Args:
+            transcription_data: Transcription dictionary
+            
+        Returns:
+            Quality score between 0.0 and 1.0
+        """
+        try:
+            if 'transcription' not in transcription_data:
+                return 0.0
+            
+            segments = transcription_data['transcription']
+            if not segments:
+                return 0.0
+            
+            # Factors for quality estimation
+            score = 1.0
+            
+            # Check for valid timestamps
+            has_valid_timestamps = all(
+                'start_time' in seg and 'end_time' in seg and
+                seg['end_time'] > seg['start_time']
+                for seg in segments
+            )
+            if not has_valid_timestamps:
+                score *= 0.5
+            
+            # Check for text content
+            avg_text_length = sum(len(seg.get('text', '')) for seg in segments) / len(segments)
+            if avg_text_length < 10:
+                score *= 0.7
+            
+            # Check for reasonable segment duration
+            avg_duration = sum(seg['end_time'] - seg['start_time'] for seg in segments) / len(segments)
+            if avg_duration < 1 or avg_duration > 30:
+                score *= 0.8
+            
+            return min(1.0, max(0.0, score))
+            
+        except Exception as e:
+            logger.warning(f"Failed to estimate quality: {e}")
+            return 0.5
+    
+    def validate_and_regenerate(
+        self,
+        audio_file_path: str,
+        video_file_path: str = None,
+        min_quality: float = 0.6,
+        max_attempts: int = 2
+    ) -> Dict:
+        """
+        Transcribe with quality validation and automatic regeneration
+        
+        Args:
+            audio_file_path: Path to audio file
+            video_file_path: Optional path to video file
+            min_quality: Minimum acceptable quality score
+            max_attempts: Maximum number of attempts
+            
+        Returns:
+            Best transcription result
+        """
+        best_result = None
+        best_quality = 0.0
+        
+        for attempt in range(max_attempts):
+            logger.info(f"Transcription attempt {attempt + 1}/{max_attempts}")
+            
+            try:
+                result = self.transcribe_audio(audio_file_path, video_file_path)
+                quality = result.get('quality_score', 0.0)
+                
+                logger.info(f"Attempt {attempt + 1} quality score: {quality:.2f}")
+                
+                if quality > best_quality:
+                    best_result = result
+                    best_quality = quality
+                
+                if quality >= min_quality:
+                    logger.info(f"Quality threshold met: {quality:.2f} >= {min_quality:.2f}")
+                    return result
+                    
+            except Exception as e:
+                logger.warning(f"Attempt {attempt + 1} failed: {e}")
+                continue
+        
+        if best_result:
+            logger.info(f"Returning best result with quality: {best_quality:.2f}")
+            return best_result
+        else:
+            raise Exception("All transcription attempts failed")
+    
+    def adjust_translation_for_duration(
+        self,
+        translation_data: Dict,
+        target_duration: float,
+        current_duration: float,
+        target_language: str
+    ) -> Dict:
+        """
+        Adjust translation text length to fit within target duration using Gemini
+        
+        Args:
+            translation_data: Original translation data
+            target_duration: Target duration in seconds
+            current_duration: Current estimated duration in seconds
+            target_language: Target language code
+            
+        Returns:
+            Adjusted translation data
+        """
+        try:
+            ratio = current_duration / target_duration
+            reduction_percent = (ratio - 1.0) * 100
+            
+            logger.info(f"Adjusting translation: current={current_duration:.1f}s, target={target_duration:.1f}s, reduction needed={reduction_percent:.1f}%")
+            
+            language_names = {
+                'pt-BR': 'Brazilian Portuguese',
+                'es-ES': 'Spanish',
+                'es': 'Spanish',
+                'en-US': 'English',
+                'fr-FR': 'French',
+                'de-DE': 'German',
+                'it-IT': 'Italian',
+                'ja-JP': 'Japanese',
+                'ko-KR': 'Korean'
+            }
+            
+            lang_name = language_names.get(target_language, target_language)
+            
+            # Define response schema
+            response_schema = {
+                "type": "OBJECT",
+                "properties": {
+                    "transcription": {
+                        "type": "ARRAY",
+                        "items": {
+                            "type": "OBJECT",
+                            "properties": {
+                                "start_time": {"type": "NUMBER"},
+                                "end_time": {"type": "NUMBER"},
+                                "text": {"type": "STRING"}
+                            },
+                            "required": ["start_time", "end_time", "text"]
+                        }
+                    }
+                },
+                "required": ["transcription"]
+            }
+            
+            prompt = (
+                f"The following {lang_name} translation needs to be shortened by approximately {reduction_percent:.0f}% "
+                f"to fit within the original video duration.\n\n"
+                f"Instructions:\n"
+                f"1. Shorten the text in each segment while preserving the core meaning\n"
+                f"2. Remove unnecessary words, redundancies, and filler phrases\n"
+                f"3. Keep the EXACT same start_time and end_time for each segment\n"
+                f"4. Maintain the natural flow and readability in {lang_name}\n"
+                f"5. Prioritize keeping important information over minor details\n\n"
+                f"Original translation:\n{json.dumps(translation_data, indent=2, ensure_ascii=False)}\n\n"
+                f"Return the shortened version maintaining the exact JSON structure."
+            )
+            
+            contents = [
+                types.Content(
+                    role="user",
+                    parts=[
+                        types.Part.from_text(text=prompt),
+                    ],
+                ),
+            ]
+            
+            config = types.GenerateContentConfig(
+                temperature=0.3,
+                response_mime_type="application/json",
+                response_schema=response_schema,
+            )
+            
+            response = self.client.models.generate_content(
+                model=Config.TRANSLATION_MODEL,
+                contents=contents,
+                config=config,
+            )
+            
+            # Parse response
+            adjusted_data = json.loads(response.text)
+            
+            # Verify structure
+            if 'transcription' not in adjusted_data or not adjusted_data['transcription']:
+                logger.error("Adjusted translation missing transcription data")
+                return translation_data  # Return original if adjustment failed
+            
+            # Log the adjustment
+            original_text_len = sum(len(seg['text']) for seg in translation_data['transcription'])
+            adjusted_text_len = sum(len(seg['text']) for seg in adjusted_data['transcription'])
+            actual_reduction = ((original_text_len - adjusted_text_len) / original_text_len) * 100
+            
+            logger.info(f"Translation adjusted: {original_text_len} -> {adjusted_text_len} chars ({actual_reduction:.1f}% reduction)")
+            
+            return adjusted_data
+            
+        except Exception as e:
+            logger.error(f"Failed to adjust translation for duration: {e}")
+            return translation_data  # Return original on error
