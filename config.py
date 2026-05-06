@@ -48,12 +48,24 @@ class Config:
     
     # TTS Backend Configuration
     TTS_BACKEND = os.getenv('TTS_BACKEND', 'gemini')  # Options: gemini, chirp3
-    
+
     # TTS Backend Options (for UI)
     TTS_BACKENDS = {
         'gemini': 'Gemini 2.5 Flash TTS (Modern, Universal)',
         'chirp3': 'Vertex AI Chirp 3 HD (Premium Quality)'
     }
+
+    # Per-language recommended TTS backend. Used to nudge users toward the
+    # backend known to have full voice coverage in that language. Mandarin
+    # Chirp 3 HD voices for several personas may not exist in Vertex AI.
+    RECOMMENDED_TTS_BACKEND = {
+        'zh-CN': 'gemini',
+    }
+
+    @classmethod
+    def get_recommended_tts_backend(cls, language_code: str) -> str:
+        """Return the recommended TTS backend for a language, or the default."""
+        return cls.RECOMMENDED_TTS_BACKEND.get(language_code, cls.TTS_BACKEND)
     
     # Available Gemini TTS voices (all languages supported)
     GEMINI_VOICES = {

@@ -11,13 +11,65 @@ import os
 import shutil
 import struct
 import sys
+import types
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 
 # Make project root importable
 _PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(_PROJECT_ROOT))
+
+
+# Stub heavy / system-dependent third-party modules so unit tests can import
+# project code without requiring the full runtime (ffmpeg-python, demucs, torch,
+# google-cloud-texttospeech, google-cloud-storage). Tests that need real
+# behaviour from these modules can still patch at finer granularity.
+def _ensure_stub(name: str, attrs: dict | None = None) -> None:
+    if name in sys.modules:
+        return
+    mod = types.ModuleType(name)
+    for k, v in (attrs or {}).items():
+        setattr(mod, k, v)
+    sys.modules[name] = mod
+
+
+# ffmpeg-python: expose Error class + chainable mock so module imports succeed
+_ffmpeg_stub = types.ModuleType("ffmpeg")
+_ffmpeg_stub.Error = type("Error", (Exception,), {})
+_ffmpeg_stub.input = MagicMock(return_value=MagicMock())
+_ffmpeg_stub.output = MagicMock(return_value=MagicMock())
+_ffmpeg_stub.probe = MagicMock(return_value={"streams": [], "format": {"duration": "1.0"}})
+_ffmpeg_stub.run = MagicMock()
+sys.modules.setdefault("ffmpeg", _ffmpeg_stub)
+
+# google-cloud-texttospeech: stub minimal classes used at import time
+_tts_stub = types.ModuleType("google.cloud.texttospeech")
+_tts_stub.TextToSpeechClient = MagicMock
+_tts_stub.SynthesisInput = MagicMock
+_tts_stub.VoiceSelectionParams = MagicMock
+_tts_stub.AudioConfig = MagicMock
+_tts_stub.AudioEncoding = types.SimpleNamespace(LINEAR16="LINEAR16")
+_tts_stub.SynthesizeSpeechRequest = MagicMock
+_tts_stub.SynthesizeSpeechResponse = MagicMock
+sys.modules.setdefault("google.cloud.texttospeech", _tts_stub)
+
+# google.api_core.exceptions: classes referenced for retry handling
+_api_core_exc = types.ModuleType("google.api_core.exceptions")
+_api_core_exc.ResourceExhausted = type("ResourceExhausted", (Exception,), {})
+_api_core_exc.ServiceUnavailable = type("ServiceUnavailable", (Exception,), {})
+sys.modules.setdefault("google.api_core", types.ModuleType("google.api_core"))
+sys.modules.setdefault("google.api_core.exceptions", _api_core_exc)
+
+# google-cloud-storage: only used by GCSClient, which is loaded lazily
+_gcs_stub = types.ModuleType("google.cloud.storage")
+_gcs_stub.Client = MagicMock
+sys.modules.setdefault("google.cloud.storage", _gcs_stub)
+
+# Heavy ML / audio numerics: stub so AudioSeparator imports succeed.
+for mod_name in ("numpy", "torch", "torchaudio", "soundfile", "scipy", "librosa"):
+    sys.modules.setdefault(mod_name, MagicMock())
 
 
 def _build_wav(sample_rate: int = 24000, channels: int = 1, duration_s: float = 1.0) -> bytes:

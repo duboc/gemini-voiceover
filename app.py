@@ -70,6 +70,20 @@ def get_voices_for_backend_and_language(tts_backend, language_code):
     })
 
 
+@app.route('/api/tts-recommendation/<language_code>')
+def get_tts_recommendation(language_code):
+    """Return the recommended TTS backend for a given language."""
+    if language_code not in Config.SUPPORTED_LANGUAGES:
+        return jsonify({'error': 'Unsupported language'}), 400
+
+    recommended = Config.get_recommended_tts_backend(language_code)
+    return jsonify({
+        'language': language_code,
+        'recommended': recommended,
+        'is_override': language_code in Config.RECOMMENDED_TTS_BACKEND,
+    })
+
+
 @app.route('/api/voices/<language_code>')
 def get_voices_for_language(language_code):
     """Legacy endpoint - Get available voices for a specific language (uses default backend)"""

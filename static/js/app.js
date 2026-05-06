@@ -407,14 +407,41 @@ class VideoTranslator {
         }
     }
 
+    // Fetch and render the recommended TTS backend hint for the chosen language.
+    // For languages where Chirp 3 HD has incomplete voice coverage (e.g. zh-CN),
+    // the backend returns a recommendation that we surface in the help text.
+    async refreshTTSRecommendation(languageCode) {
+        const helpEl = document.getElementById('tts-backend-help');
+        const backendSelect = document.getElementById('tts-backend');
+        if (!helpEl || !backendSelect) return;
+
+        try {
+            const resp = await fetch(`/api/tts-recommendation/${languageCode}`);
+            if (!resp.ok) return;
+            const data = await resp.json();
+
+            if (data.is_override) {
+                const recommendedLabel = backendSelect.querySelector(`option[value="${data.recommended}"]`)?.textContent || data.recommended;
+                helpEl.innerHTML = `<span class="text-warning"><i class="fas fa-info-circle me-1"></i>Recommended for this language: <strong>${this.escapeHtml(recommendedLabel)}</strong></span>`;
+            } else {
+                helpEl.textContent = 'Gemini: Universal | Chirp3: Premium';
+            }
+        } catch (err) {
+            // Non-fatal; keep default help text
+            console.warn('TTS recommendation fetch failed:', err);
+        }
+    }
+
     // Update voice options based on selected language
     async updateVoiceOptions(languageCode = null) {
         const languageSelect = document.getElementById('language');
         const voiceSelect = document.getElementById('voice');
-        
+
         if (!languageCode) {
             languageCode = languageSelect.value;
         }
+
+        this.refreshTTSRecommendation(languageCode);
 
         try {
             // Check if we have cached data for this language
@@ -476,6 +503,8 @@ class VideoTranslator {
     async updateVoicesForBackend(ttsBackend, languageCode) {
         const voiceSelect = document.getElementById('voice');
         const cacheKey = `${ttsBackend}_${languageCode}`;
+
+        this.refreshTTSRecommendation(languageCode);
         
         try {
             // Check if we have cached data for this combo

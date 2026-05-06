@@ -12,11 +12,11 @@ Status: aguardando aprovação. Cada item é uma unidade atômica com teste ante
 - [x] Rodar pytest, marcar verde (11/11 verdes).
 
 ### M2 — Recomendação de TTS para Mandarim (estratégia mínima e segura)
-- [ ] Em `tests/test_tts_recommendation.py`, escrever teste que importa `Config` e valida `Config.get_recommended_tts_backend('zh-CN') == 'gemini'` e que para `'en-US'` retorna `Config.TTS_BACKEND` (default).
-- [ ] Em `config.py`, adicionar `RECOMMENDED_TTS_BACKEND = {'zh-CN': 'gemini'}` (apenas Mandarim por ora) e método `Config.get_recommended_tts_backend(lang)` com fallback ao default.
-- [ ] Em `templates/index.html`, adicionar pequeno `<div class="form-text">` no select de TTS engine que muda dinamicamente; em `static/js/app.js` na função `updateVoiceOptions()`, fazer fetch de `/api/tts-recommendation/<lang>` e exibir aviso "Recomendado para este idioma: Gemini TTS" quando aplicável.
-- [ ] Em `app.py`, criar endpoint `GET /api/tts-recommendation/<lang>` retornando `{'recommended': 'gemini'}` ou similar.
-- [ ] Rodar pytest e validar manualmente no browser que selecionar Mandarim destaca Gemini.
+- [x] Em `tests/test_tts_recommendation.py`, testes para Config + endpoint Flask.
+- [x] Em `config.py`, adicionado `RECOMMENDED_TTS_BACKEND = {'zh-CN': 'gemini'}` e classmethod `get_recommended_tts_backend()`.
+- [x] Em `templates/index.html`, `<div id="tts-backend-help">` agora é alvo dinâmico; em `static/js/app.js`, novo `refreshTTSRecommendation()` é chamado em todo update de idioma/backend.
+- [x] Em `app.py`, endpoint `GET /api/tts-recommendation/<lang>` retorna `{language, recommended, is_override}`.
+- [x] Pytest 7/7 verdes. Validação manual em browser fica para usuário (ffmpeg não disponível localmente).
 
 ### P2 — Respeitar `Config.TTS_MAX_RETRIES`
 - [ ] Em `tests/test_tts_retries.py`, criar teste com `unittest.mock` que monkey-patche `Config.TTS_MAX_RETRIES = 5`, mocka `client.synthesize_speech` para sempre lançar `exceptions.ResourceExhausted`, e valida que `_synthesize_with_retry` é chamado **5 vezes** (não 3).
