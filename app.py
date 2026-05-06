@@ -666,15 +666,27 @@ def process_video(process_id: str, video_path: str, target_language: str, voice_
                             logger.error(f"Failed to adjust segment {idx}: {e}")
                     
                     if adjustments_made:
-                        # Re-generate TTS for ALL segments to ensure consistency and file ordering
-                        # (Optimization: Could just regenerate specific files, but generate_speech handles list)
-                        logger.info("Regenerating TTS with shortened text...")
-                        audio_files = google_tts_client.generate_speech(
-                            translation_data, 
-                            voice_name, 
-                            speech_dir,
-                            model_name=model_name if tts_backend == 'gemini' else None
+                        changed_indices = [item['segment'] for item in segments_to_fix]
+                        logger.info(
+                            f"Regenerating TTS only for shortened segments: {changed_indices}"
                         )
+                        new_files = google_tts_client.generate_speech_segments(
+                            translation_data,
+                            voice_name,
+                            speech_dir,
+                            segment_indices=changed_indices,
+                            model_name=model_name if tts_backend == 'gemini' else None,
+                        )
+                        # Replace in-place; new_files come back ordered by segment index
+                        for replacement in new_files:
+                            # Filename pattern is segment_{idx:03d}_*.wav
+                            basename = os.path.basename(replacement)
+                            try:
+                                idx = int(basename.split('_')[1])
+                            except (IndexError, ValueError):
+                                continue
+                            if 0 <= idx < len(audio_files):
+                                audio_files[idx] = replacement
                     else:
                         logger.warning("No adjustments could be made despite duration issues. Continuing...")
                         break

@@ -29,27 +29,46 @@ class GoogleTTSClient:
             raise Exception(f"Google Cloud TTS initialization failed: {str(e)}")
     
     def generate_speech(
-        self, 
-        translation_data: Dict, 
-        voice_name: str, 
-        output_dir: str, 
+        self,
+        translation_data: Dict,
+        voice_name: str,
+        output_dir: str,
         model_name: Optional[str] = None
     ) -> List[str]:
         """
-        Generate speech from translated text segments using Google Cloud TTS.
-        Supports Gemini 2.5 TTS and Chirp 3 HD based on parameters.
-        
-        Args:
-            translation_data: Dictionary containing transcription segments
-            voice_name: Voice name to use
-            output_dir: Directory to save audio files
-            model_name: Optional model name (e.g., 'gemini-2.5-pro-tts' or 'gemini-2.5-flash-tts')
-            
-        Returns:
-            List of generated audio file paths
+        Generate speech for every segment in translation_data.
+
+        Thin wrapper around generate_speech_segments that requests the full
+        index range. Kept for backwards compatibility with existing callers.
+        """
+        n = len(translation_data['transcription'])
+        return self.generate_speech_segments(
+            translation_data, voice_name, output_dir,
+            segment_indices=list(range(n)), model_name=model_name,
+        )
+
+    def generate_speech_segments(
+        self,
+        translation_data: Dict,
+        voice_name: str,
+        output_dir: str,
+        segment_indices: List[int],
+        model_name: Optional[str] = None,
+    ) -> List[str]:
+        """
+        Generate speech for a chosen subset of segments only.
+
+        Used by the duration-adjustment loop so that re-shortening one or two
+        segments does not force re-synthesis of the entire video.
         """
         try:
-            logger.info(f"Generating speech with voice '{voice_name}' (Model: {model_name}) for {len(translation_data['transcription'])} segments")
+            segments = translation_data['transcription']
+            valid_indices = sorted({i for i in segment_indices if 0 <= i < len(segments)})
+
+            logger.info(
+                f"Generating speech with voice '{voice_name}' (Model: {model_name}) "
+                f"for {len(valid_indices)}/{len(segments)} segments (indices={valid_indices})"
+            )
             audio_files = []
             
             # Determine language code
@@ -83,8 +102,7 @@ class GoogleTTSClient:
                 speaking_rate=Config.TTS_SPEAKING_RATE
             )
             
-            segments = translation_data['transcription']
-            results: Dict[int, Optional[str]] = {i: None for i in range(len(segments))}
+            results: Dict[int, Optional[str]] = {i: None for i in valid_indices}
 
             def _process(idx: int, segment: Dict) -> None:
                 text = segment['text']
@@ -111,11 +129,11 @@ class GoogleTTSClient:
 
             workers = max(1, Config.TTS_PARALLEL_WORKERS)
             with ThreadPoolExecutor(max_workers=workers) as pool:
-                futures = [pool.submit(_process, i, seg) for i, seg in enumerate(segments)]
+                futures = [pool.submit(_process, i, segments[i]) for i in valid_indices]
                 for fut in as_completed(futures):
                     fut.result()  # propagate unexpected exceptions
 
-            audio_files = [results[i] for i in range(len(segments)) if results[i] is not None]
+            audio_files = [results[i] for i in valid_indices if results[i] is not None]
             logger.info(
                 f"Google Cloud TTS generation completed: {len(audio_files)} files generated "
                 f"(parallel workers={workers})"

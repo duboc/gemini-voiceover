@@ -39,10 +39,10 @@ Status: aguardando aprovação. Cada item é uma unidade atômica com teste ante
 - [x] Pytest 27/27 verdes (sem regressões).
 
 ### S1 — Regenerar TTS apenas dos segmentos alterados no loop de duration
-- [ ] Em `tests/test_duration_adjustment_targeted.py`, criar teste que mocka `gemini_client.adjust_translation_for_duration` (retorna texto modificado para segmentos 2 e 5) e mocka `google_tts_client.generate_speech_segments(translation_data, voice, dir, segment_indices=...)`. Asserta que após adjustment apenas índices `[2, 5]` foram passados, não `[0..9]`.
-- [ ] Em `google_tts_client.py`, adicionar método `generate_speech_segments(translation_data, voice_name, output_dir, segment_indices, model_name)` que gera apenas índices listados (preservando nomes de arquivo `segment_{i:03d}_*.wav`).
-- [ ] Em `app.py:607-666`, no loop de duration adjustment: coletar `changed_indices`, chamar `generate_speech_segments` apenas com esses índices em vez de regenerar tudo. Atualizar a lista `audio_files` apenas nas posições alteradas.
-- [ ] Rodar pytest verde.
+- [x] Em `tests/test_targeted_tts_regeneration.py`, 3 testes: subset de índices, delegação do `generate_speech` e índices inválidos ignorados.
+- [x] Em `google_tts_client.py`, novo `generate_speech_segments(...)`. `generate_speech` virou wrapper que pede a faixa completa.
+- [x] Em `app.py`, loop de duration adjustment agora coleta `changed_indices` e chama `generate_speech_segments` apenas para eles, atualizando `audio_files[idx]` por índice extraído do nome `segment_{idx:03d}_*.wav`.
+- [x] Pytest 30/30 verdes (sem regressões).
 
 ### S2 — Corrigir drift acumulativo em `_fallback_concatenation`
 - [ ] Em `tests/test_concat_drift.py`, criar teste com 3 segmentos artificiais (`pcm_s16le`, 24kHz mono, gerados via ffmpeg `anullsrc`/`sine`) onde segmento 0 dura 5s mas timestamp diz 0-3s. Chamar `_fallback_concatenation` e asserta via `ffprobe` que duração final do output é `total_duration` (não maior nem menor que ±0.05s).
