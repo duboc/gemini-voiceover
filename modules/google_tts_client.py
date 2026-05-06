@@ -122,15 +122,21 @@ class GoogleTTSClient:
             raise Exception(f"Speech generation failed: {str(e)}")
             
     def _synthesize_with_retry(
-        self, 
-        input_text: texttospeech.SynthesisInput, 
-        voice: texttospeech.VoiceSelectionParams, 
+        self,
+        input_text: texttospeech.SynthesisInput,
+        voice: texttospeech.VoiceSelectionParams,
         audio_config: texttospeech.AudioConfig,
-        max_retries: int = 3
+        max_retries: Optional[int] = None,
     ) -> texttospeech.SynthesizeSpeechResponse:
         """
-        Synthesize speech with retry logic for rate limits and quota errors
+        Synthesize speech with retry logic for rate limits and quota errors.
+
+        max_retries defaults to Config.TTS_MAX_RETRIES so operators can tune
+        the cap without editing code.
         """
+        if max_retries is None:
+            max_retries = Config.TTS_MAX_RETRIES
+
         for attempt in range(max_retries):
             try:
                 return self.client.synthesize_speech(

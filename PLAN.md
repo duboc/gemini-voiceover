@@ -19,9 +19,9 @@ Status: aguardando aprovação. Cada item é uma unidade atômica com teste ante
 - [x] Pytest 7/7 verdes. Validação manual em browser fica para usuário (ffmpeg não disponível localmente).
 
 ### P2 — Respeitar `Config.TTS_MAX_RETRIES`
-- [ ] Em `tests/test_tts_retries.py`, criar teste com `unittest.mock` que monkey-patche `Config.TTS_MAX_RETRIES = 5`, mocka `client.synthesize_speech` para sempre lançar `exceptions.ResourceExhausted`, e valida que `_synthesize_with_retry` é chamado **5 vezes** (não 3).
-- [ ] Em `google_tts_client.py:124`, remover parâmetro default `max_retries=3` e usar `Config.TTS_MAX_RETRIES`.
-- [ ] Rodar pytest verde.
+- [x] Em `tests/test_tts_retries.py`, 3 testes parametrizados: cap=5, sucesso na 3ª, cap=2.
+- [x] Em `google_tts_client.py`, `max_retries` agora default a `Config.TTS_MAX_RETRIES` quando `None`.
+- [x] Pytest 3/3 verdes.
 
 ### V3 — Áudio final com bitrate explícito e estéreo
 - [ ] Em `tests/test_video_processor_audio_codec.py`, escrever teste que mocka `ffmpeg.run` (e captura `ffmpeg.output(...)` kwargs via spy), chama `replace_video_audio()` e asserta que `audio_bitrate='192k'` e `ac=2` foram passados.
