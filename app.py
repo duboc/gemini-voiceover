@@ -601,6 +601,17 @@ def process_video(process_id: str, video_path: str, target_language: str, voice_
         else:
             raise Exception(f"Unsupported TTS backend: {tts_backend}")
         
+        # Fail-fast: every TTS call rejected → no audio files were produced.
+        # Without this guard, the pipeline cheerfully proceeds to mux a
+        # silent track into the final video (real bug seen with zh-CN +
+        # Cloud TTS API mismatch).
+        if not audio_files or len(audio_files) == 0:
+            raise Exception(
+                "TTS produced no audio files (0 segments synthesised). "
+                "Check the TTS backend, voice name, and language code; "
+                "see Cloud Run logs for per-segment errors."
+            )
+
         # Update status
         processing_status[process_id].update({
             'progress': 80,
