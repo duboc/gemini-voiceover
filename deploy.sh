@@ -1,54 +1,93 @@
 #!/bin/bash
+# Cloud Run deploy script for Gemini Voiceover.
+# Auth uses Application Default Credentials via the Cloud Run service account.
 
-# Cloud Run Deployment Script for Gemini Voiceover
-
-# Exit on error
 set -e
 
 echo "🚀 Preparing to deploy Gemini Voiceover to Cloud Run..."
 
-# Check if gcloud is installed
 if ! command -v gcloud &> /dev/null; then
     echo "❌ Error: gcloud CLI is not installed."
-    echo "Please install it from: https://cloud.google.com/sdk/docs/install"
+    echo "   Install: https://cloud.google.com/sdk/docs/install"
     exit 1
 fi
 
-# (Optional) Check for optional env vars if needed, but main auth is via ADC
 echo "🔑 Using Application Default Credentials (ADC) via Cloud Run Service Account"
 
-# Project ID
-PROJECT_ID=$(gcloud config get-value project)
+# ----- Project ---------------------------------------------------------------
+PROJECT_ID=$(gcloud config get-value project 2>/dev/null || echo "")
 if [ -z "$PROJECT_ID" ]; then
     echo "⚠️  No default Google Cloud project set."
-    read -p "Enter your Google Cloud Project ID: " PROJECT_ID
-    gcloud config set project $PROJECT_ID
+    read -rp "Enter your Google Cloud Project ID: " PROJECT_ID
+    gcloud config set project "$PROJECT_ID"
 fi
-
 echo "✅ Using Project ID: $PROJECT_ID"
 
-# Service Name
-SERVICE_NAME="gemini-voiceover"
-REGION="us-central1"
+# ----- Service / region ------------------------------------------------------
+SERVICE_NAME="${SERVICE_NAME:-gemini-voiceover}"
+REGION="${REGION:-us-central1}"
 
-echo "📦 Deploying to Cloud Run (this may take a few minutes)..."
-echo "   - Building container from source"
-echo "   - Deploying to region: $REGION"
-echo "   - Service name: $SERVICE_NAME"
+# ----- GCS bucket bootstrap --------------------------------------------------
+# Cloud Run filesystems are ephemeral and per-instance; persistent storage and
+# cross-instance state require GCS. Default bucket name is derived from the
+# project ID; override by exporting GCS_BUCKET_NAME before running.
+GCS_BUCKET_NAME="${GCS_BUCKET_NAME:-${PROJECT_ID}-gemini-voiceover}"
 
-gcloud run deploy $SERVICE_NAME \
-    --source . \
-    --platform managed \
-    --region $REGION \
-    --allow-unauthenticated \
-    --use-http2 \
-    --memory 4Gi \
-    --cpu 2 \
-    --set-env-vars GOOGLE_CLOUD_PROJECT=$PROJECT_ID \
-    --set-env-vars GOOGLE_CLOUD_LOCATION=$REGION \
-    --set-env-vars FLASK_DEBUG=False \
-    --set-env-vars MAX_FILE_SIZE_MB=500 \
-    --timeout 300
+echo "🪣 Ensuring GCS bucket gs://$GCS_BUCKET_NAME exists in $REGION..."
+if gcloud storage buckets describe "gs://$GCS_BUCKET_NAME" >/dev/null 2>&1; then
+    echo "   ✅ Bucket already exists"
+else
+    echo "   📦 Creating bucket..."
+    gcloud storage buckets create "gs://$GCS_BUCKET_NAME" \
+        --project="$PROJECT_ID" \
+        --location="$REGION" \
+        --uniform-bucket-level-access
+    echo "   ✅ Bucket created"
+fi
+
+# ----- Tunables (override via env before invoking) ---------------------------
+TTS_PARALLEL_WORKERS="${TTS_PARALLEL_WORKERS:-5}"
+ENABLE_LOUDNORM="${ENABLE_LOUDNORM:-True}"
+OUTPUT_AUDIO_BITRATE="${OUTPUT_AUDIO_BITRATE:-192k}"
+REVIEW_TIMEOUT_SEC="${REVIEW_TIMEOUT_SEC:-1800}"
+MAX_FILE_SIZE_MB="${MAX_FILE_SIZE_MB:-500}"
+MEMORY="${MEMORY:-4Gi}"
+CPU="${CPU:-2}"
+
+# Cloud Run inbound request timeout. 3600s (1h) is the gen2 max and lets the
+# review-step polling loop run to completion; the worker-side budget is set
+# in the Dockerfile via gunicorn --timeout.
+CLOUD_RUN_TIMEOUT="${CLOUD_RUN_TIMEOUT:-3600}"
 
 echo ""
-echo "🎉 Deployment Complete!"
+echo "📦 Deploying $SERVICE_NAME to Cloud Run ($REGION)..."
+echo "   Memory:    $MEMORY"
+echo "   CPU:       $CPU"
+echo "   Timeout:   ${CLOUD_RUN_TIMEOUT}s"
+echo "   Bucket:    $GCS_BUCKET_NAME"
+echo "   Workers:   $TTS_PARALLEL_WORKERS parallel TTS"
+echo "   Loudnorm:  $ENABLE_LOUDNORM"
+
+gcloud run deploy "$SERVICE_NAME" \
+    --source . \
+    --platform managed \
+    --region "$REGION" \
+    --allow-unauthenticated \
+    --use-http2 \
+    --memory "$MEMORY" \
+    --cpu "$CPU" \
+    --timeout "$CLOUD_RUN_TIMEOUT" \
+    --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT_ID" \
+    --set-env-vars "GOOGLE_CLOUD_LOCATION=$REGION" \
+    --set-env-vars "FLASK_DEBUG=False" \
+    --set-env-vars "MAX_FILE_SIZE_MB=$MAX_FILE_SIZE_MB" \
+    --set-env-vars "STORAGE_BACKEND=gcs" \
+    --set-env-vars "GCS_BUCKET_NAME=$GCS_BUCKET_NAME" \
+    --set-env-vars "REVIEW_TIMEOUT_SEC=$REVIEW_TIMEOUT_SEC" \
+    --set-env-vars "TTS_PARALLEL_WORKERS=$TTS_PARALLEL_WORKERS" \
+    --set-env-vars "ENABLE_LOUDNORM=$ENABLE_LOUDNORM" \
+    --set-env-vars "OUTPUT_AUDIO_BITRATE=$OUTPUT_AUDIO_BITRATE"
+
+echo ""
+echo "🎉 Deployment complete!"
+echo "   Service URL: $(gcloud run services describe "$SERVICE_NAME" --region "$REGION" --format='value(status.url)' 2>/dev/null || echo 'check console')"

@@ -29,5 +29,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Run gunicorn
-# Timeout increased to 120s because loading models (like Demucs) might take time
-CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 120 app:app
+# Timeout 600s accommodates Demucs model load (~2 min cold start) plus the
+# longer-running TTS/sync work. Cloud Run --timeout caps the inbound HTTP
+# request separately at 3600s; this is the per-worker request budget.
+CMD exec gunicorn --bind :$PORT --workers 1 --threads 8 --timeout 600 app:app
