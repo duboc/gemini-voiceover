@@ -50,7 +50,10 @@ TTS_PARALLEL_WORKERS="${TTS_PARALLEL_WORKERS:-5}"
 ENABLE_LOUDNORM="${ENABLE_LOUDNORM:-True}"
 OUTPUT_AUDIO_BITRATE="${OUTPUT_AUDIO_BITRATE:-192k}"
 REVIEW_TIMEOUT_SEC="${REVIEW_TIMEOUT_SEC:-1800}"
-MAX_FILE_SIZE_MB="${MAX_FILE_SIZE_MB:-500}"
+# Cloud Run HTTP/1 caps the request body at 32 MiB. Going higher requires
+# HTTP/2 (which gunicorn-sync/gthread does not speak as h2c), or routing
+# uploads directly to GCS via signed URLs (a Lote 3 item).
+MAX_FILE_SIZE_MB="${MAX_FILE_SIZE_MB:-32}"
 MEMORY="${MEMORY:-4Gi}"
 CPU="${CPU:-2}"
 
@@ -73,7 +76,6 @@ gcloud run deploy "$SERVICE_NAME" \
     --platform managed \
     --region "$REGION" \
     --allow-unauthenticated \
-    --use-http2 \
     --memory "$MEMORY" \
     --cpu "$CPU" \
     --timeout "$CLOUD_RUN_TIMEOUT" \
