@@ -162,57 +162,136 @@ class VideoProcessor:
             logger.error(f"Unexpected error during video audio replacement: {str(e)}")
             raise Exception(f"Video audio replacement failed: {str(e)}")
     
-    def _fallback_concatenation(self, valid_audio_files: List[str], valid_timestamps: List[Tuple[float, float]], 
+    def _get_segment_duration(self, audio_file: str) -> float:
+        """Probe an audio file's duration in seconds. 0.0 on failure."""
+        try:
+            probe = ffmpeg.probe(audio_file)
+            return float(probe['format']['duration'])
+        except Exception as e:
+            logger.warning(f"Could not probe duration for {audio_file}: {e}")
+            return 0.0
+
+    @staticmethod
+    def _build_concat_timeline(
+        audio_files: List[str],
+        timestamps: List[Tuple[float, float]],
+        actual_durations: List[float],
+        total_duration: float,
+    ) -> dict:
+        """Pure planning step: decide silences and truncations without I/O.
+
+        Returns a dict with:
+          - silences: {segment_idx -> duration} for pre-segment gap fills
+          - truncations: {segment_idx -> max_duration} for segments that
+            would overrun their slot or push past total_duration
+          - final_silence: trailing silence to reach total_duration
+          - final_current_time: timeline cursor after the last segment
+        """
+        silences: dict = {}
+        truncations: dict = {}
+        current_time = 0.0
+
+        for idx, ((start_time, end_time), actual) in enumerate(zip(timestamps, actual_durations)):
+            slot = max(0.0, end_time - start_time)
+            # Pre-segment silence only when there's a real forward gap
+            if start_time > current_time + 1e-6:
+                silences[idx] = start_time - current_time
+
+            # Truncate if actual audio overflows this slot
+            if actual > slot + 1e-6:
+                truncations[idx] = slot
+
+            # Cap at total_duration
+            projected_end = start_time + min(actual, truncations.get(idx, actual))
+            if projected_end > total_duration + 1e-6:
+                truncations[idx] = max(0.0, total_duration - start_time)
+
+            # Always advance to expected end_time so downstream gaps are correct
+            current_time = end_time
+
+        final_silence = max(0.0, total_duration - current_time)
+        return {
+            "silences": silences,
+            "truncations": truncations,
+            "final_silence": final_silence,
+            "final_current_time": current_time,
+        }
+
+    def _fallback_concatenation(self, valid_audio_files: List[str], valid_timestamps: List[Tuple[float, float]],
                                output_path: str, total_duration: float, sample_rate: int, channels: int) -> str:
-        """Fallback method using simple concatenation with silence padding"""
+        """Fallback method using simple concatenation with silence padding.
+
+        Drift-safe: a) advances the timeline cursor by each segment's
+        EXPECTED duration regardless of how long the rendered audio is,
+        and b) truncates overrunning segments (with a tiny fade-out to
+        avoid clicks) so they cannot bleed into the next slot.
+        """
         try:
             logger.info("Using fallback concatenation method")
-            
-            # Create segments with proper timing
-            segment_files = []
-            current_time = 0.0
-            temp_files = []  # Track temp files for cleanup
-            
-            for i, (audio_file, (start_time, end_time)) in enumerate(zip(valid_audio_files, valid_timestamps)):
-                # Add silence before this segment if needed
-                if start_time > current_time:
-                    silence_duration = start_time - current_time
-                    silence_file = os.path.join(Config.TEMP_FOLDER, f"silence_{i}.wav")
-                    temp_files.append(silence_file)
-                    
-                    logger.info(f"Adding {silence_duration}s silence before segment {i}")
-                    
-                    (
-                        ffmpeg
-                        .input(f'anullsrc=channel_layout={"mono" if channels == 1 else "stereo"}:sample_rate={sample_rate}', 
-                               f='lavfi', t=silence_duration)
-                        .output(silence_file, acodec='pcm_s16le', ar=sample_rate, ac=channels)
-                        .overwrite_output()
-                        .run(capture_stdout=True, capture_stderr=True)
-                    )
-                    segment_files.append(silence_file)
-                
-                # Add the actual audio segment
-                segment_files.append(audio_file)
-                current_time = end_time
-            
-            # Add final silence if needed
-            if current_time < total_duration:
-                final_silence_duration = total_duration - current_time
-                final_silence_file = os.path.join(Config.TEMP_FOLDER, "final_silence.wav")
-                temp_files.append(final_silence_file)
-                
-                logger.info(f"Adding {final_silence_duration}s final silence")
-                
+
+            actual_durations = [self._get_segment_duration(f) for f in valid_audio_files]
+            plan = self._build_concat_timeline(
+                valid_audio_files, valid_timestamps, actual_durations, total_duration,
+            )
+
+            segment_files: List[str] = []
+            temp_files: List[str] = []
+            channel_layout = "mono" if channels == 1 else "stereo"
+
+            def _make_silence(seconds: float, name: str) -> str:
+                silence_path = os.path.join(Config.TEMP_FOLDER, name)
+                temp_files.append(silence_path)
                 (
                     ffmpeg
-                    .input(f'anullsrc=channel_layout={"mono" if channels == 1 else "stereo"}:sample_rate={sample_rate}', 
-                           f='lavfi', t=final_silence_duration)
-                    .output(final_silence_file, acodec='pcm_s16le', ar=sample_rate, ac=channels)
+                    .input(f'anullsrc=channel_layout={channel_layout}:sample_rate={sample_rate}',
+                           f='lavfi', t=seconds)
+                    .output(silence_path, acodec='pcm_s16le', ar=sample_rate, ac=channels)
                     .overwrite_output()
                     .run(capture_stdout=True, capture_stderr=True)
                 )
-                segment_files.append(final_silence_file)
+                return silence_path
+
+            def _trim_with_fade(src: str, max_seconds: float, name: str) -> str:
+                """Trim with a 10ms fade-out to avoid audible click on cut."""
+                trimmed_path = os.path.join(Config.TEMP_FOLDER, name)
+                temp_files.append(trimmed_path)
+                fade_dur = 0.01
+                fade_start = max(0.0, max_seconds - fade_dur)
+                cmd = [
+                    'ffmpeg', '-y',
+                    '-i', src,
+                    '-t', str(max_seconds),
+                    '-af', f'afade=t=out:st={fade_start:.4f}:d={fade_dur:.4f}',
+                    '-acodec', 'pcm_s16le',
+                    '-ar', str(sample_rate),
+                    '-ac', str(channels),
+                    trimmed_path,
+                ]
+                result = subprocess.run(cmd, capture_output=True, text=True)
+                if result.returncode != 0:
+                    logger.warning(f"Trim failed for {src}, using original: {result.stderr}")
+                    return src
+                return trimmed_path
+
+            for idx, (audio_file, (start_time, end_time)) in enumerate(zip(valid_audio_files, valid_timestamps)):
+                if idx in plan["silences"]:
+                    s = plan["silences"][idx]
+                    logger.info(f"Adding {s:.3f}s silence before segment {idx}")
+                    segment_files.append(_make_silence(s, f"silence_{idx}.wav"))
+
+                if idx in plan["truncations"]:
+                    cap = plan["truncations"][idx]
+                    logger.warning(
+                        f"Segment {idx} overruns slot ({actual_durations[idx]:.3f}s > {cap:.3f}s); "
+                        f"trimming with 10ms fade-out"
+                    )
+                    segment_files.append(_trim_with_fade(audio_file, cap, f"trim_{idx}.wav"))
+                else:
+                    segment_files.append(audio_file)
+
+            if plan["final_silence"] > 1e-6:
+                logger.info(f"Adding {plan['final_silence']:.3f}s final silence")
+                segment_files.append(_make_silence(plan["final_silence"], "final_silence.wav"))
             
             # Concatenate all segments
             logger.info(f"Concatenating {len(segment_files)} audio segments")

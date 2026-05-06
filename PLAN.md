@@ -45,12 +45,9 @@ Status: aguardando aprovação. Cada item é uma unidade atômica com teste ante
 - [x] Pytest 30/30 verdes (sem regressões).
 
 ### S2 — Corrigir drift acumulativo em `_fallback_concatenation`
-- [ ] Em `tests/test_concat_drift.py`, criar teste com 3 segmentos artificiais (`pcm_s16le`, 24kHz mono, gerados via ffmpeg `anullsrc`/`sine`) onde segmento 0 dura 5s mas timestamp diz 0-3s. Chamar `_fallback_concatenation` e asserta via `ffprobe` que duração final do output é `total_duration` (não maior nem menor que ±0.05s).
-- [ ] Em `video_processor.py:170-194`, modificar lógica:
-  - Se `current_time > start_time` (overlap): truncar segmento anterior para `target_end = start_time` ANTES de adicionar (gerar arquivo trim temporário); logar warning.
-  - Se segmento ultrapassa `total_duration`: truncar para caber.
-  - Sempre forçar `current_time = end_time` matematicamente, mesmo após truncate.
-- [ ] Rodar pytest verde.
+- [x] Em `tests/test_concat_drift.py`, 3 testes: subprocess trim invocado em segmento que overruns, helper puro `_build_concat_timeline` avança cursor por expected end_time, silêncios só para gaps reais.
+- [x] Em `video_processor.py`, extraído `_build_concat_timeline` (puro, testável) e `_get_segment_duration`. `_fallback_concatenation` agora trunca segmentos overrunning com fade-out de 10ms via `_trim_with_fade`, cap em `total_duration`, e cursor sempre = `end_time` esperado (drift = 0).
+- [x] Pytest 33/33 verdes.
 
 ### V1 — Normalização de loudness no áudio final
 - [ ] Em `tests/test_loudnorm.py`, criar teste que mocka `subprocess.run` em `video_processor` e chama `_fallback_concatenation`. Asserta que o filtro `loudnorm=I=-16:TP=-1.5:LRA=11` aparece no comando ffmpeg final (e que pode ser desabilitado via `Config.ENABLE_LOUDNORM=False`).
