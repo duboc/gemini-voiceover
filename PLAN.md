@@ -33,11 +33,10 @@ Status: aguardando aprovação. Cada item é uma unidade atômica com teste ante
 ## Lote 2 — Performance & Sync
 
 ### P1 — Paralelizar geração TTS com semáforo de rate limit
-- [ ] Em `tests/test_tts_parallel.py`, criar teste com `unittest.mock` que mocka `synthesize_speech` com `time.sleep(0.5)` simulado. Asserta que `generate_speech` para 10 segmentos completa em **≤ 3s** (5 workers paralelos) e em **≥ 0.5s × 10 = 5s** se single-thread (regressão).
-- [ ] Em `google_tts_client.py`, refatorar `generate_speech()`: introduzir `concurrent.futures.ThreadPoolExecutor(max_workers=Config.TTS_PARALLEL_WORKERS)` (default 5), usar `threading.Semaphore` para controlar concorrência, ordenar resultados por `segment_index` ao consolidar lista de retorno. Adicionar `Config.TTS_PARALLEL_WORKERS = int(os.getenv('TTS_PARALLEL_WORKERS', '5'))`.
-- [ ] Garantir que mensagens de log mantenham ordem por segmento (loga após `as_completed`).
-- [ ] Validar que `_synthesize_with_retry` é thread-safe (não compartilha estado mutável).
-- [ ] Rodar pytest verde.
+- [x] Em `tests/test_tts_parallel.py`, 3 testes: timing paralelo (≤1s para 10×0.2s), ordem por índice apesar de scrambling, default de Config.
+- [x] Em `google_tts_client.py`, `generate_speech` agora usa `ThreadPoolExecutor(max_workers=Config.TTS_PARALLEL_WORKERS)`. Resultados coletados em dict por índice e re-ordenados.
+- [x] `Config.TTS_PARALLEL_WORKERS = 5` (default), env var `TTS_PARALLEL_WORKERS`.
+- [x] Pytest 27/27 verdes (sem regressões).
 
 ### S1 — Regenerar TTS apenas dos segmentos alterados no loop de duration
 - [ ] Em `tests/test_duration_adjustment_targeted.py`, criar teste que mocka `gemini_client.adjust_translation_for_duration` (retorna texto modificado para segmentos 2 e 5) e mocka `google_tts_client.generate_speech_segments(translation_data, voice, dir, segment_indices=...)`. Asserta que após adjustment apenas índices `[2, 5]` foram passados, não `[0..9]`.

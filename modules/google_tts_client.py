@@ -1,6 +1,7 @@
 import os
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import List, Dict, Optional
 from google.cloud import texttospeech
 from google.api_core import exceptions
@@ -82,39 +83,43 @@ class GoogleTTSClient:
                 speaking_rate=Config.TTS_SPEAKING_RATE
             )
             
-            for i, segment in enumerate(translation_data['transcription']):
+            segments = translation_data['transcription']
+            results: Dict[int, Optional[str]] = {i: None for i in range(len(segments))}
+
+            def _process(idx: int, segment: Dict) -> None:
                 text = segment['text']
                 start_time = segment['start_time']
                 end_time = segment['end_time']
-                
-                logger.info(f"Generating speech for segment {i}: '{text[:50]}...' ({start_time:.1f}s - {end_time:.1f}s)")
-                
+                logger.info(
+                    f"Generating speech for segment {idx}: '{text[:50]}...' "
+                    f"({start_time:.1f}s - {end_time:.1f}s)"
+                )
                 try:
-                    # Create synthesis input
                     synthesis_input = texttospeech.SynthesisInput(text=text)
-                    
-                    # Perform the text-to-speech request with retry logic
                     response = self._synthesize_with_retry(
                         synthesis_input, voice_params, audio_config
                     )
-                    
-                    # Save the audio file
-                    filename = f"segment_{i:03d}_{start_time:.1f}_{end_time:.1f}.wav"
+                    filename = f"segment_{idx:03d}_{start_time:.1f}_{end_time:.1f}.wav"
                     filepath = os.path.join(output_dir, filename)
-                    
                     with open(filepath, 'wb') as f:
                         f.write(response.audio_content)
-                    
                     file_size = os.path.getsize(filepath)
-                    logger.info(f"Saved audio segment {i} to: {filepath} ({file_size} bytes)")
-                    audio_files.append(filepath)
-                    
+                    logger.info(f"Saved audio segment {idx} to: {filepath} ({file_size} bytes)")
+                    results[idx] = filepath
                 except Exception as e:
-                    logger.error(f"Failed to generate speech for segment {i}: {e}")
-                    # Continue with other segments even if one fails
-                    continue
-            
-            logger.info(f"Google Cloud TTS generation completed: {len(audio_files)} files generated")
+                    logger.error(f"Failed to generate speech for segment {idx}: {e}")
+
+            workers = max(1, Config.TTS_PARALLEL_WORKERS)
+            with ThreadPoolExecutor(max_workers=workers) as pool:
+                futures = [pool.submit(_process, i, seg) for i, seg in enumerate(segments)]
+                for fut in as_completed(futures):
+                    fut.result()  # propagate unexpected exceptions
+
+            audio_files = [results[i] for i in range(len(segments)) if results[i] is not None]
+            logger.info(
+                f"Google Cloud TTS generation completed: {len(audio_files)} files generated "
+                f"(parallel workers={workers})"
+            )
             return audio_files
             
         except Exception as e:

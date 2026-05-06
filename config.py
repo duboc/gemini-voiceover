@@ -250,6 +250,12 @@ class Config:
     TTS_RATE_LIMIT_DELAY = float(os.getenv('TTS_RATE_LIMIT_DELAY', '6.5'))  # Delay between batches (seconds)
     TTS_MAX_RETRIES = int(os.getenv('TTS_MAX_RETRIES', '5'))  # Max retry attempts for rate limiting
     TTS_ENABLE_BATCHING = os.getenv('TTS_ENABLE_BATCHING', 'True').lower() == 'true'  # Enable segment batching
+
+    # Parallel TTS generation: number of concurrent synthesise calls.
+    # Vertex AI TTS quotas typically allow 100-300 RPM; 5 workers gives
+    # ~3-5x speedup without risking rate limits when combined with the
+    # exponential-backoff retry on ResourceExhausted.
+    TTS_PARALLEL_WORKERS = int(os.getenv('TTS_PARALLEL_WORKERS', '5'))
     
     # Smart Batching Configuration (for 30-second chunks)
     TTS_BATCH_DURATION_SEC = float(os.getenv('TTS_BATCH_DURATION_SEC', '30.0'))  # Target duration for combined segments
