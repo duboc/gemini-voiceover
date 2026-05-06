@@ -54,9 +54,10 @@ class Config:
     # TTS Backend Configuration
     TTS_BACKEND = os.getenv('TTS_BACKEND', 'gemini')  # Options: gemini, chirp3
 
-    # TTS Backend Options (for UI)
+    # TTS Backend Options (for UI). The 'gemini' label tracks the default
+    # GEMINI_TTS_MODEL: bump both together when upgrading.
     TTS_BACKENDS = {
-        'gemini': 'Gemini 2.5 Flash TTS (Modern, Universal)',
+        'gemini': 'Gemini 3.1 Flash TTS (Native, Auto-Language)',
         'chirp3': 'Vertex AI Chirp 3 HD (Premium Quality)'
     }
 
