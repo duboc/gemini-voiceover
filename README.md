@@ -1,468 +1,311 @@
 # Gemini Video Voiceover Translator
 
-A professional Flask web application that translates video narration using Google Gemini AI and Google Cloud Text-to-Speech. Upload a video, select a target language, and get back a new video with high-quality AI-generated voiceover in the selected language while maintaining perfect timing synchronization.
+Translate the narration of a video into another language while keeping the
+original timing, optionally preserving the background music. End-to-end on
+Google Cloud: Vertex AI Gemini for transcription/translation, Cloud TTS
+(Gemini 2.5 Flash or Chirp 3 HD) for the new voice, Demucs for vocal
+isolation, FFmpeg for everything else.
 
-## 🚀 Key Features
+A live deploy of this repo is running at
+`https://gemini-voiceover-713488125678.us-central1.run.app`.
 
-### **AI-Powered Translation Pipeline**
-- **Gemini 2.5 Flash**: Accurate transcription and translation with timestamp preservation
-- **Google Cloud TTS**: Professional Chirp v3 HD voices for broadcast-quality audio
-- **Demucs Audio Separation**: State-of-the-art AI for vocal isolation and background music preservation
-- **Intelligent Fallback**: Automatic quality assessment with graceful degradation
+---
 
-### **Professional Audio Processing**
-- **Background Music Preservation**: AI separates vocals from music, preserves original atmosphere
-- **Replace All Mode**: Fast processing option that replaces entire audio track
-- **High-Quality Pipeline**: 24kHz TTS generation with quality preservation throughout
-- **Robust Audio Mixing**: Advanced timing-based mixing with multiple fallback methods
+## Pipeline at a glance
 
-### **Corporate-Ready Features**
-- **Multiple Processing Modes**: Choose between music preservation or fast replacement
-- **Language-Specific Voices**: Chirp v3 HD voices optimized for each target language
-- **Real-Time Progress**: Detailed progress tracking with status updates
-- **Reliable Processing**: Multi-level validation ensures successful completion
-
-## 🎯 Supported Languages & Voices
-
-### **Brazilian Portuguese (pt-BR)**
-- pt-BR-Chirp3-HD-Zephyr (Recommended)
-- pt-BR-Chirp3-HD-Puck
-- pt-BR-Chirp3-HD-Charon
-- pt-BR-Chirp3-HD-Kore
-- pt-BR-Chirp3-HD-Fenrir
-- pt-BR-Chirp3-HD-Aoede
-
-### **Spanish (es)**
-- es-ES-Chirp3-HD-Zephyr (Recommended)
-- es-ES-Chirp3-HD-Puck
-- es-ES-Chirp3-HD-Charon
-- es-ES-Chirp3-HD-Kore
-- es-ES-Chirp3-HD-Fenrir
-- es-ES-Chirp3-HD-Aoede
-
-## 🔄 Processing Workflow
-
-### **Preserve Background Music Mode (Recommended)**
-1. **Upload Video** → Select MP4/MOV file (max 500MB)
-2. **Audio Extraction** → High-quality audio extraction (44.1kHz stereo)
-3. **AI Separation** → Demucs separates vocals from background music
-4. **Transcription** → Gemini AI transcribes vocal track with timestamps
-5. **Translation** → Translate text to target language
-6. **Voice Generation** → Google Cloud TTS generates new voiceover (24kHz)
-7. **Audio Mixing** → Combine new vocals with preserved background music
-8. **Video Assembly** → Create final video with mixed audio
-9. **Download** → Get professional-quality translated video
-
-### **Replace All Audio Mode (Fast)**
-1. **Upload Video** → Select MP4/MOV file
-2. **Audio Extraction** → Extract original audio for transcription
-3. **Transcription** → Gemini AI transcribes with timestamps
-4. **Translation** → Translate to target language
-5. **Voice Generation** → Google Cloud TTS creates new voiceover
-6. **Audio Replacement** → Replace entire audio track
-7. **Video Assembly** → Create final video
-8. **Download** → Get clean, fast-processed video
-
-## 📋 Prerequisites
-
-- **Python 3.8+**
-- **FFmpeg** (for video/audio processing)
-- **Google Gemini API key**
-- **Google Cloud Project** (for TTS)
-- **Demucs dependencies** (PyTorch, torchaudio)
-
-## 🛠 Installation
-
-### **1. Clone Repository**
-```bash
-git clone <repository-url>
-cd gemini-voiceover
+```
+                              ┌───────────────────────────┐
+                              │   Browser (web upload)    │
+                              └─────────────┬─────────────┘
+                                            │ POST /upload  (≤ 32 MiB)
+                                            ▼
+┌──────────────────────────── Cloud Run (Flask + gunicorn) ───────────────────────────┐
+│                                                                                      │
+│  ┌──────────────────┐                                                                │
+│  │ Save upload      │ ───► gs://…/uploads/<id>.mp4                                   │
+│  └────────┬─────────┘                                                                │
+│           ▼                                                                          │
+│  ┌──────────────────┐                                                                │
+│  │ FFmpeg extract   │ ───► audio.wav (44.1 kHz stereo)                               │
+│  │  + probe info    │                                                                │
+│  └────────┬─────────┘                                                                │
+│           ▼                                                                          │
+│  ┌──────────────────┐    ┌──────────────────────────────────┐                        │
+│  │ Demucs separate  │ ─► │ vocals.wav      background.wav   │                        │
+│  │ (htdemucs/mdx)   │    └──────────────────────────────────┘                        │
+│  └────────┬─────────┘    (skipped in `replace_all` mode)                             │
+│           │                                                                          │
+│           ▼  vocals.wav + video frames                                               │
+│  ┌─────────────────────────────────────┐    Vertex AI Gemini 2.5 Flash               │
+│  │ Transcribe (multimodal)             │ ─► [{start_time, end_time, text}, …]        │
+│  │  + quality_score validate / regen   │                                             │
+│  └────────┬────────────────────────────┘                                             │
+│           ▼                                                                          │
+│  ┌─────────────────────────────────────┐    Gemini 2.5 Flash                         │
+│  │ Translate to target language        │ ─► segments translated                      │
+│  │  uses LANGUAGE_NAMES (zh/nl/pl/ru…) │                                             │
+│  └────────┬────────────────────────────┘                                             │
+│           ▼                                                                          │
+│  ╔═════════════════════════════════════╗                                             │
+│  ║  REVIEW (background thread waits)   ║ ◄── GET  /api/review/<id>                   │
+│  ║  bound by REVIEW_TIMEOUT_SEC (30 m) ║ ──► POST /api/approve/<id>  (with edits)    │
+│  ╚════════════════╤════════════════════╝                                             │
+│                   ▼  approved + (optionally edited) translation                      │
+│  ┌─────────────────────────────────────┐    Vertex AI Cloud TTS                      │
+│  │ Generate TTS — parallel             │   ┌───────────────────────────────────┐    │
+│  │  ThreadPoolExecutor                 │ ► │ TTS_PARALLEL_WORKERS = 5          │    │
+│  │  Gemini 2.5 Flash TTS  /  Chirp 3   │   │ retries = TTS_MAX_RETRIES         │    │
+│  └────────┬────────────────────────────┘   └───────────────────────────────────┘    │
+│           ▼  N × segment_NNN_*.wav (24 kHz)                                          │
+│  ┌─────────────────────────────────────┐                                             │
+│  │ Duration adjustment loop            │  Gemini shortens overruns;                  │
+│  │  (≤ MAX_DURATION_ADJUSTMENT_ATTEMPTS)│  regenerates ONLY changed indices          │
+│  └────────┬────────────────────────────┘                                             │
+│           ▼                                                                          │
+│  ┌─────────────────────────────────────┐                                             │
+│  │ Per-segment time-stretch (atempo)   │  pitch-preserving                           │
+│  │  AudioSynchronizer                  │  bounded by MIN/MAX_SPEAKING_RATE           │
+│  └────────┬────────────────────────────┘                                             │
+│           ▼                                                                          │
+│  ┌─────────────────────────────────────┐                                             │
+│  │ Concat with drift correction        │  truncate overruns +                        │
+│  │  _build_concat_timeline (pure)      │  10 ms afade-out on cuts                    │
+│  └────────┬────────────────────────────┘                                             │
+│           ▼                                                                          │
+│  ┌─────────────────────────────────────┐                                             │
+│  │ loudnorm I=-16 : TP=-1.5 : LRA=11   │  single pass, applied once                  │
+│  │  (ENABLE_LOUDNORM)                  │                                             │
+│  └────────┬────────────────────────────┘                                             │
+│           ▼                                                                          │
+│  ┌─────────────────────────────────────┐                                             │
+│  │ Mix with background.wav             │  vocal_balance                              │
+│  │  (preserve_music mode only)         │                                             │
+│  └────────┬────────────────────────────┘                                             │
+│           ▼                                                                          │
+│  ┌─────────────────────────────────────┐                                             │
+│  │ FFmpeg mux: video copy + AAC        │  OUTPUT_AUDIO_BITRATE = 192k                │
+│  │                                     │  stereo, 48 kHz                             │
+│  └────────┬────────────────────────────┘                                             │
+└───────────┼──────────────────────────────────────────────────────────────────────────┘
+            ▼
+  ┌──────────────────────────────────────────────┐
+  │  gs://<project>-gemini-voiceover/outputs/    │ ─► signed URL ─► browser download   │
+  └──────────────────────────────────────────────┘
 ```
 
-### **2. Install Python Dependencies**
-```bash
-pip install -r requirements.txt
-```
+---
 
-### **3. Install FFmpeg**
+## Supported languages
 
-**macOS** (using Homebrew):
-```bash
-brew install ffmpeg
-```
+All twelve languages share the six universal Gemini personas (Zephyr, Puck,
+Charon, Kore, Fenrir, Aoede). Chirp 3 HD voices follow the
+`<lang>-Chirp3-HD-<Persona>` pattern but coverage varies per language —
+when a language is known to have gaps, the UI surfaces a recommendation.
 
-**Ubuntu/Debian**:
-```bash
-sudo apt update
-sudo apt install ffmpeg
-```
+| Code  | Language                    | Recommended TTS |
+|-------|-----------------------------|-----------------|
+| en-US | English (US)                | (default)       |
+| pt-BR | Brazilian Portuguese        | (default)       |
+| es-ES | Spanish (Spain)             | (default)       |
+| fr-FR | French (France)             | (default)       |
+| de-DE | German (Germany)            | (default)       |
+| it-IT | Italian (Italy)             | (default)       |
+| ja-JP | Japanese (Japan)            | (default)       |
+| ko-KR | Korean (South Korea)        | (default)       |
+| nl-NL | Dutch (Netherlands)         | (default)       |
+| pl-PL | Polish (Poland)             | (default)       |
+| ru-RU | Russian (Russia)            | (default)       |
+| zh-CN | Chinese (Mandarin, China)   | **Gemini TTS**  |
 
-**Windows**:
-Download from [https://ffmpeg.org/download.html](https://ffmpeg.org/download.html)
+The frontend hits `GET /api/tts-recommendation/<lang>` whenever the
+language or backend selector changes, and renders an inline hint when
+`is_override` is true.
 
-### **4. Set Up Google Cloud Authentication**
+---
 
-**Option A: Service Account (Recommended for Production)**
-```bash
-# Create service account and download JSON key
-export GOOGLE_APPLICATION_CREDENTIALS="/path/to/service-account-key.json"
-```
+## Configuration
 
-**Option B: Application Default Credentials (Development)**
-```bash
-gcloud auth application-default login
-```
+Authentication is **Application Default Credentials only** (no API keys).
+Locally: `gcloud auth application-default login`. On Cloud Run: the
+attached service account.
 
-### **5. Configure Environment Variables**
-```bash
-cp .env.example .env
-```
+Required:
 
-Edit `.env` with your configuration:
 ```env
-# Required
-GEMINI_API_KEY=your_gemini_api_key_here
-GOOGLE_CLOUD_PROJECT=your_google_cloud_project_id
-
-# Optional
-FLASK_SECRET_KEY=your_secret_key_here
-FLASK_DEBUG=True
-FLASK_PORT=5000
-TTS_SPEAKING_RATE=1.0
+GOOGLE_CLOUD_PROJECT=your-gcp-project-id
+GOOGLE_CLOUD_LOCATION=us-central1
 ```
 
-### **6. Set Up Google Cloud Storage (Optional)**
+Storage (GCS strongly recommended in production; local mode is ephemeral):
 
-**For Production Deployments**:
-```bash
-# Create a GCS bucket
-gsutil mb gs://your-voiceover-bucket
-
-# Set bucket permissions (if needed)
-gsutil iam ch serviceAccount:your-service-account@project.iam.gserviceaccount.com:objectAdmin gs://your-voiceover-bucket
-```
-
-**Configure GCS in `.env`**:
 ```env
 STORAGE_BACKEND=gcs
-GCS_BUCKET_NAME=your-voiceover-bucket
-GCS_ENABLE_LIFECYCLE=True
+GCS_BUCKET_NAME=your-gcs-bucket
 GCS_TEMP_FILE_RETENTION_DAYS=7
 ```
 
-### **7. Get API Keys**
+Models:
 
-**Gemini API Key**:
-- Go to [Google AI Studio](https://aistudio.google.com/)
-- Create a new API key
-- Add to `.env` file
-
-**Google Cloud Project**:
-- Go to [Google Cloud Console](https://console.cloud.google.com/)
-- Create or select a project
-- Enable Text-to-Speech API and Cloud Storage API
-- Set up authentication
-
-## 🚀 Usage
-
-### **1. Start the Application**
-```bash
-python app.py
-```
-
-### **2. Open Web Interface**
-```
-http://localhost:8080
-```
-
-### **3. Process Videos**
-1. **Upload**: Select MP4 or MOV file
-2. **Configure**: Choose language, voice, and processing mode
-3. **Advanced Settings** (for Preserve Music mode):
-   - Select AI separation model (HTDEMUCS recommended)
-   - Adjust vocal/music balance
-4. **Process**: Click "Start Translation"
-5. **Monitor**: Watch real-time progress
-6. **Download**: Get your translated video
-
-## ⚙️ Configuration
-
-### **Required Settings**
 ```env
-GEMINI_API_KEY=your_gemini_api_key_here
-GOOGLE_CLOUD_PROJECT=your_google_cloud_project_id
-```
-
-### **Optional Settings**
-```env
-# Flask Configuration
-FLASK_SECRET_KEY=your_secret_key_here
-FLASK_DEBUG=True
-FLASK_PORT=5000
-
-# File Processing
-MAX_FILE_SIZE_MB=500
-MAX_CONCURRENT_JOBS=3
-CLEANUP_TEMP_FILES_HOURS=24
-
-# TTS Configuration
-TTS_SPEAKING_RATE=1.0  # 0.25 to 2.0 (speed control)
-
-# Model Configuration
 TRANSCRIPTION_MODEL=gemini-2.5-flash
 TRANSLATION_MODEL=gemini-2.5-flash
+GEMINI_TTS_MODEL=gemini-2.5-flash-tts        # NOT ...-preview-tts
+TTS_BACKEND=gemini                            # gemini | chirp3
 ```
 
-## 🏗 Project Structure
+Performance / sync (defaults shown):
 
-```
-gemini-voiceover/
-├── app.py                      # Main Flask application
-├── config.py                   # Configuration management
-├── requirements.txt            # Python dependencies
-├── .env.example               # Environment template
-├── modules/
-│   ├── gemini_client.py       # Gemini API integration
-│   ├── google_tts_client.py   # Google Cloud TTS client
-│   ├── video_processor.py     # Video/audio processing
-│   ├── audio_separator.py     # Demucs audio separation
-│   └── file_manager.py        # File handling utilities
-├── templates/
-│   └── index.html             # Web interface
-├── static/
-│   ├── css/style.css          # Custom styles
-│   ├── js/app.js              # Frontend JavaScript
-│   ├── uploads/               # Uploaded files
-│   ├── temp/                  # Processing files
-│   └── outputs/               # Final videos
-└── README.md
+```env
+TTS_PARALLEL_WORKERS=5                        # parallel TTS calls
+TTS_MAX_RETRIES=5                             # honoured by retry loop
+ENABLE_AUDIO_SYNC=True
+MAX_TIMING_DIFFERENCE_SEC=0.5
+ENFORCE_ORIGINAL_DURATION=True
+MAX_DURATION_ADJUSTMENT_ATTEMPTS=3
+MIN_SPEAKING_RATE=0.85
+MAX_SPEAKING_RATE=1.15
+REVIEW_TIMEOUT_SEC=1800                       # 30 min cap on awaiting approval
 ```
 
-## 🔧 API Endpoints
+Final-render audio:
 
-- `GET /`: Main upload page
-- `POST /upload`: Upload video and start processing
-- `GET /status/<process_id>`: Get processing status
-- `GET /download/<process_id>`: Download processed video
-
-## 🎵 Audio Processing Modes
-
-### **Preserve Background Music (AI Separation)**
-- **Best for**: Corporate videos, promotional content with music
-- **Process**: Demucs AI separates vocals from background music
-- **Result**: New vocals mixed with original music and sound effects
-- **Quality**: Highest quality, maintains production value
-- **Time**: Longer processing (5-10 minutes for separation)
-
-### **Replace Entire Audio Track (Fast & Simple)**
-- **Best for**: Training videos, announcements, simple narration
-- **Process**: Skips audio separation entirely
-- **Result**: Clean new voiceover replaces all original audio
-- **Quality**: Consistent, professional narration
-- **Time**: Fastest processing (saves 5-10 minutes)
-
-## 🛠 Troubleshooting
-
-### **Debug Tools**
-```bash
-# Test basic setup
-python test_app.py
-
-# Comprehensive diagnostics
-python debug_app.py
+```env
+OUTPUT_AUDIO_BITRATE=192k
+OUTPUT_AUDIO_SAMPLE_RATE=48000
+OUTPUT_AUDIO_CHANNELS=2
+ENABLE_LOUDNORM=True
+LOUDNORM_TARGET_I=-16
+LOUDNORM_TP=-1.5
+LOUDNORM_LRA=11
 ```
 
-### **Common Issues**
+Full list with comments: `.env.example`.
 
-**1. FFmpeg not found**
-```bash
-# Test FFmpeg installation
-ffmpeg -version
+---
 
-# Run diagnostics
-python debug_app.py
-```
+## Local development
 
-**2. Google Cloud TTS errors**
-```bash
-# Check authentication
-gcloud auth application-default print-access-token
-
-# Verify project and API
-gcloud config list
-```
-
-**3. Demucs/PyTorch issues**
-```bash
-# Check PyTorch installation
-python -c "import torch; print(torch.__version__)"
-
-# Test CUDA availability (optional)
-python -c "import torch; print(torch.cuda.is_available())"
-```
-
-**4. Audio processing failures**
-- Check FFmpeg version (4.0+ recommended)
-- Verify sufficient disk space (2-3x video size)
-- Monitor system memory during processing
-- Check logs for specific error messages
-
-**5. No vocals in output video**
-- Verify TTS generation completed successfully
-- Check audio combination logs for errors
-- Ensure final audio file exists and has content
-- Try "Replace All" mode as fallback
-
-### **Performance Optimization**
-
-**For Faster Processing**:
-- Use "Replace All" mode for simple content
-- Choose MDX model for faster separation
-- Process shorter video segments
-- Ensure SSD storage for temp files
-
-**For Best Quality**:
-- Use "Preserve Music" mode
-- Select HTDEMUCS model for separation
-- Use higher vocal balance for clearer speech
-- Ensure stable internet for API calls
-
-## 🔬 Advanced Features
-
-### **Audio Separation Models**
-- **HTDEMUCS**: Highest quality, slower processing
-- **MDX-Extra**: Balanced quality and speed
-- **MDX**: Fastest processing, good quality
-
-### **Voice Controls**
-- **Speaking Rate**: 0.25x to 2.0x speed control
-- **Natural Pauses**: Automatic pause insertion with markup
-- **Language Optimization**: Voices optimized for each language
-
-### **Quality Assurance**
-- **Automatic validation** at each processing step
-- **Multiple fallback methods** for reliable results
-- **Quality scoring** for separation assessment
-- **Comprehensive error recovery**
-
-## 🤝 Development
-
-### **Contributing**
-1. Fork the repository
-2. Create a feature branch
-3. Make your changes
-4. Test thoroughly with `debug_app.py`
-5. Submit a pull request
-
-### **Testing**
-```bash
-# Run basic tests
-python test_app.py
-
-# Run comprehensive diagnostics
-python debug_app.py
-
-# Test specific components
-python -m modules.google_tts_client
-python -m modules.audio_separator
-```
-
-## 🚀 Deployment to Google Cloud Run
-
-You can easily deploy this application to Google Cloud Run using the provided script.
-
-### Prerequisites
-1. [Google Cloud SDK](https://cloud.google.com/sdk/docs/install) installed and initialized.
-2. A Google Cloud Project with billing enabled.
-3. `Cloud Run Admin` and `Artifact Registry Administrator` roles.
-
-### Deploy
-Run the deployment script:
+Requires Python 3.11+, FFmpeg, libsndfile, and (for Demucs) PyTorch.
 
 ```bash
+gcloud auth application-default login
+cp .env.example .env       # edit GOOGLE_CLOUD_PROJECT / GCS_BUCKET_NAME
+pip install -r requirements.txt
+python app.py              # serves on http://localhost:8080
+```
+
+Run the test suite (no FFmpeg or live cloud needed — heavy deps are stubbed
+in `tests/conftest.py`):
+
+```bash
+pip install pytest
+pytest -q
+```
+
+---
+
+## Deploy to Cloud Run
+
+```bash
+gcloud config set project <PROJECT_ID>
 ./deploy.sh
 ```
 
-The script will:
-1. Check for your `GEMINI_API_KEY` (in `.env` or prompt you).
-2. Build the container image remotely using Cloud Build.
-3. Deploy the service to Cloud Run.
-4. Output the public URL of your application.
+The script:
 
-Note: The deployment creates a public service (`--allow-unauthenticated`). Remove this flag in `deploy.sh` if you want to restrict access.
+1. Verifies `gcloud` is installed and a project is set.
+2. Creates `gs://<PROJECT_ID>-gemini-voiceover` in `us-central1` if it
+   doesn't exist (override with `GCS_BUCKET_NAME=…`).
+3. Runs `gcloud run deploy --source .`, building the container via Cloud
+   Build, with `--memory 4Gi --cpu 2 --timeout 3600` and the env vars
+   above wired in.
+4. Prints the resulting service URL.
 
+Tunables you can override before invoking:
 
-## 📄 License
-
-This project is licensed under the Apache 2.0 License - see the LICENSE file for details.
-
-## 🙏 Acknowledgments
-
-- **Google Gemini AI** for transcription and translation
-- **Google Cloud Text-to-Speech** for Chirp v3 HD voices
-- **Demucs** for audio separation
-- **FFmpeg** for video/audio processing
-- **Flask** for the web framework
-- **Bootstrap** for UI components
-
-## ☁️ Google Cloud Storage Integration
-
-### **Scalable File Storage**
-- **Hybrid Storage**: Support for both local and Google Cloud Storage backends
-- **Automatic Lifecycle**: Configurable retention policies for temporary files
-- **Artifact Preservation**: All processing data saved for analysis and debugging
-- **Signed URLs**: Secure, time-limited download links for GCS files
-
-### **Storage Organization**
-```
-GCS Bucket Structure:
-├── uploads/           # Original uploaded videos
-├── outputs/           # Final translated videos  
-├── artifacts/         # Processing artifacts by process_id
-│   └── {process_id}/
-│       ├── json/      # Transcriptions, translations
-│       └── logs/      # Processing logs
-├── processing/        # Temporary processing files (auto-cleanup)
-└── temp/             # General temporary files (auto-cleanup)
+```bash
+MEMORY=8Gi CPU=4 TTS_PARALLEL_WORKERS=8 \
+  REVIEW_TIMEOUT_SEC=900 ./deploy.sh
 ```
 
-### **Configuration Options**
-```env
-# Storage Backend Selection
-STORAGE_BACKEND=gcs              # Options: local, gcs
+APIs that must be enabled on the project (the script doesn't check; do
+this once):
 
-# GCS Configuration  
-GCS_BUCKET_NAME=your-bucket-name
-GCS_ENABLE_LIFECYCLE=True
-GCS_TEMP_FILE_RETENTION_DAYS=7
+```bash
+gcloud services enable \
+  run.googleapis.com \
+  cloudbuild.googleapis.com \
+  storage.googleapis.com \
+  texttospeech.googleapis.com \
+  aiplatform.googleapis.com \
+  artifactregistry.googleapis.com
 ```
 
-### **Benefits**
-- **Scalability**: Handle larger files without local storage constraints
-- **Reliability**: Built-in redundancy and durability
-- **Cost Efficiency**: Automatic cleanup and pay-per-use pricing
-- **Multi-Instance**: Support for distributed processing
-- **Persistence**: Files survive server restarts and deployments
+---
 
-## 🆕 Recent Updates
+## Project layout
 
-### **v2.1 - Google Cloud Storage Integration**
-- ✅ **Hybrid Storage System** - Local and GCS backend support
-- ✅ **Automatic Lifecycle Management** - Configurable file retention
-- ✅ **Artifact Storage** - Complete processing history preservation
-- ✅ **Signed URL Downloads** - Secure, scalable file delivery
-- ✅ **Graceful Fallback** - Automatic local storage if GCS unavailable
+```
+gemini-voiceover/
+├── app.py                      # Flask routes + background processing thread
+├── config.py                   # All env-driven configuration
+├── deploy.sh                   # Cloud Run deploy + GCS bucket bootstrap
+├── Dockerfile                  # python:3.11-slim + ffmpeg, gunicorn 600s
+├── requirements.txt
+├── modules/
+│   ├── gemini_client.py        # Vertex AI: transcribe, translate, shorten
+│   ├── google_tts_client.py    # Vertex AI Cloud TTS (parallel synth)
+│   ├── audio_separator.py      # Demucs vocal/music separation
+│   ├── audio_synchronizer.py   # Per-segment atempo time-stretch
+│   ├── video_processor.py      # FFmpeg: extract, concat, mux, loudnorm
+│   ├── file_manager.py         # Local + GCS storage abstraction
+│   ├── gcs_client.py           # GCS bucket operations + lifecycle
+│   ├── gcs_url_generator.py    # Signed URL generation
+│   └── error_handler.py        # Gemini-specific error mapping
+├── templates/index.html        # Single-page upload/review/download UI
+├── static/
+│   ├── css/style.css
+│   └── js/app.js               # Polls /status, renders review, fetches recs
+└── tests/                      # pytest, 39 cases, no live cloud calls
+```
 
-### **v2.0 - Professional Audio Processing**
-- ✅ **Google Cloud TTS Integration** - Chirp v3 HD voices
-- ✅ **Demucs Audio Separation** - Professional vocal isolation
-- ✅ **Dual Processing Modes** - Preserve music or replace all
-- ✅ **Enhanced Quality Pipeline** - 24kHz TTS with quality preservation
-- ✅ **Robust Error Handling** - Multi-level validation and fallbacks
-- ✅ **Corporate-Ready Features** - Reliable processing for business use
+---
 
-### **v1.0 - Initial Release**
-- ✅ Basic video translation with Gemini AI
-- ✅ Simple audio replacement
-- ✅ Web interface with progress tracking
-- ✅ Multiple language support
+## API endpoints
+
+| Method | Path                                     | Purpose                                  |
+|--------|------------------------------------------|------------------------------------------|
+| GET    | `/`                                      | Upload UI                                |
+| POST   | `/upload`                                | Start a translation job                  |
+| GET    | `/status/<id>`                           | Poll job state + progress                |
+| GET    | `/api/review/<id>`                       | Fetch transcription + translation        |
+| POST   | `/api/approve/<id>`                      | Approve (and optionally edit) translation|
+| GET    | `/download/<id>`                         | Fetch the rendered video (or signed URL) |
+| GET    | `/api/voices/<backend>/<lang>`           | List voices for a backend + language     |
+| GET    | `/api/voices/<lang>`                     | Voices for default backend (legacy)      |
+| GET    | `/api/tts-recommendation/<lang>`         | Recommended TTS for a language           |
+
+---
+
+## Known limitations
+
+- **Upload cap is 32 MiB.** Cloud Run's HTTP/1 request body limit;
+  enabling `--use-http2` requires an h2c-capable worker (gunicorn-sync /
+  gthread doesn't qualify). For larger files the path forward is direct
+  upload to GCS via signed URL, then job kick-off — not implemented.
+- **State is in-memory.** `processing_status` lives in the Flask process
+  dict; if Cloud Run scales beyond one instance, `/status/<id>` and
+  `/api/approve/<id>` may hit a different replica and return 404.
+  Move to Redis or Firestore to scale horizontally.
+- **`MAX_CONCURRENT_JOBS` is informational.** No semaphore enforces it
+  yet; the only backpressure is gunicorn's thread pool (8 by default).
+- **Mandarin Chirp 3 HD personas may 404.** Coverage varies per voice in
+  Vertex; the UI nudges users toward Gemini TTS for `zh-CN` for that
+  reason. The fix is dynamic voice-list discovery against
+  `texttospeech.list_voices(language_code=…)`.
+
+---
+
+## License
+
+Apache 2.0 — see `LICENSE`.
