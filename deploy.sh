@@ -78,6 +78,8 @@ gcloud run deploy "$SERVICE_NAME" \
     --allow-unauthenticated \
     --memory "$MEMORY" \
     --cpu "$CPU" \
+    --no-cpu-throttling \
+    --cpu-boost \
     --timeout "$CLOUD_RUN_TIMEOUT" \
     --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT_ID" \
     --set-env-vars "GOOGLE_CLOUD_LOCATION=$REGION" \
