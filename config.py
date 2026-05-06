@@ -103,19 +103,28 @@ class Config:
     
     # Initialize voices for all supported languages
     _LANGS = [
-        'en-US', 'pt-BR', 'es-ES', 'fr-FR', 'de-DE', 
-        'it-IT', 'ja-JP', 'ko-KR', 'nl-NL', 'pl-PL', 
+        'en-US', 'pt-BR', 'es-ES', 'fr-FR', 'de-DE',
+        'it-IT', 'ja-JP', 'ko-KR', 'nl-NL', 'pl-PL',
         'ru-RU', 'zh-CN'
     ]
-    
+
+    # Cloud TTS uses BCP-47 macrolanguage codes for some languages — Mandarin
+    # ships as cmn-CN, not zh-CN. We keep the user-facing key as zh-CN but
+    # generate voice ids with the prefix the API actually accepts.
+    _CHIRP3_PREFIX_OVERRIDES = {
+        'zh-CN': 'cmn-CN',
+        'zh-TW': 'cmn-TW',
+    }
+
     for lang in _LANGS:
+        prefix = _CHIRP3_PREFIX_OVERRIDES.get(lang, lang)
         CHIRP3_VOICES[lang] = {}
         for persona, desc in _PERSONAS.items():
-            voice_id = f"{lang}-Chirp3-HD-{persona}"
+            voice_id = f"{prefix}-Chirp3-HD-{persona}"
             CHIRP3_VOICES[lang][voice_id] = f"{persona} (Chirp 3 HD)"
-        
+
         # Set default
-        DEFAULT_CHIRP3_VOICES[lang] = f"{lang}-Chirp3-HD-Zephyr"
+        DEFAULT_CHIRP3_VOICES[lang] = f"{prefix}-Chirp3-HD-Zephyr"
     
     # Legacy Google Cloud TTS voices (kept for backward compatibility)
     AVAILABLE_VOICES = {
