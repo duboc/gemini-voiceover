@@ -237,6 +237,14 @@ class Config:
     OUTPUT_AUDIO_BITRATE = os.getenv('OUTPUT_AUDIO_BITRATE', '192k')
     OUTPUT_AUDIO_SAMPLE_RATE = int(os.getenv('OUTPUT_AUDIO_SAMPLE_RATE', '48000'))
     OUTPUT_AUDIO_CHANNELS = int(os.getenv('OUTPUT_AUDIO_CHANNELS', '2'))
+
+    # Loudness normalisation applied once to the concatenated track so that
+    # per-segment TTS loudness variation is smoothed out. Defaults aim for
+    # broadcast-grade -16 LUFS integrated; suitable for streaming platforms.
+    ENABLE_LOUDNORM = os.getenv('ENABLE_LOUDNORM', 'True').lower() == 'true'
+    LOUDNORM_TARGET_I = os.getenv('LOUDNORM_TARGET_I', '-16')
+    LOUDNORM_TP = os.getenv('LOUDNORM_TP', '-1.5')
+    LOUDNORM_LRA = os.getenv('LOUDNORM_LRA', '11')
     
     # Audio Synchronization Configuration
     ENABLE_AUDIO_SYNC = os.getenv('ENABLE_AUDIO_SYNC', 'True').lower() == 'true'

@@ -50,11 +50,11 @@ Status: aguardando aprovação. Cada item é uma unidade atômica com teste ante
 - [x] Pytest 33/33 verdes.
 
 ### V1 — Normalização de loudness no áudio final
-- [ ] Em `tests/test_loudnorm.py`, criar teste que mocka `subprocess.run` em `video_processor` e chama `_fallback_concatenation`. Asserta que o filtro `loudnorm=I=-16:TP=-1.5:LRA=11` aparece no comando ffmpeg final (e que pode ser desabilitado via `Config.ENABLE_LOUDNORM=False`).
-- [ ] Em `config.py`, adicionar `ENABLE_LOUDNORM = os.getenv('ENABLE_LOUDNORM', 'True').lower() == 'true'` e `LOUDNORM_TARGET_I = '-16'`, `LOUDNORM_TP = '-1.5'`, `LOUDNORM_LRA = '11'`.
-- [ ] Em `video_processor.py`, adicionar passo de `loudnorm` no comando final do `_fallback_concatenation` (passa via `-af loudnorm=...` no ffmpeg final). Aplicar **uma vez ao final**, não por segmento.
-- [ ] Rodar pytest verde.
-- [ ] Smoke test manual: rodar `test_fix.py` com `video2-small.mp4` e verificar volume consistente.
+- [x] Em `tests/test_loudnorm.py`, 3 testes: filtro presente quando habilitado, ausente quando desabilitado, defaults expostos.
+- [x] Em `config.py`, adicionados `ENABLE_LOUDNORM` (True), `LOUDNORM_TARGET_I` (-16), `LOUDNORM_TP` (-1.5), `LOUDNORM_LRA` (11).
+- [x] Em `video_processor.py`, `_fallback_concatenation` passa `af='loudnorm=I=...:TP=...:LRA=...'` no `output()` final. Single pass — sem custo extra de measurement.
+- [x] Pytest 36/36 verdes.
+- [ ] Smoke test manual com `video2-small.mp4` fica para o usuário (ffmpeg não disponível localmente).
 
 ---
 

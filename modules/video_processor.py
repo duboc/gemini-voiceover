@@ -304,11 +304,21 @@ class VideoProcessor:
                 for segment_file in segment_files:
                     f.write(f"file '{os.path.abspath(segment_file)}'\n")
             
-            # Use concat demuxer
+            # Build output kwargs, optionally adding a single loudnorm pass
+            # so per-segment TTS loudness variation is smoothed out without
+            # paying for two-pass measurement overhead.
+            output_kwargs = dict(acodec='pcm_s16le', ar=sample_rate, ac=channels)
+            if Config.ENABLE_LOUDNORM:
+                output_kwargs['af'] = (
+                    f"loudnorm=I={Config.LOUDNORM_TARGET_I}"
+                    f":TP={Config.LOUDNORM_TP}:LRA={Config.LOUDNORM_LRA}"
+                )
+                logger.info(f"Applying loudnorm filter: {output_kwargs['af']}")
+
             (
                 ffmpeg
                 .input(concat_file, format='concat', safe=0)
-                .output(output_path, acodec='pcm_s16le', ar=sample_rate, ac=channels)
+                .output(output_path, **output_kwargs)
                 .overwrite_output()
                 .run(capture_stdout=True, capture_stderr=True)
             )
