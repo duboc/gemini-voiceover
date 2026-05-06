@@ -22,24 +22,42 @@ def _build_translation(n: int) -> dict:
     }
 
 
+def _gemini_response_with_pcm(pcm: bytes) -> MagicMock:
+    inline_data = MagicMock()
+    inline_data.data = pcm
+    part = MagicMock()
+    part.inline_data = inline_data
+    content = MagicMock()
+    content.parts = [part]
+    candidate = MagicMock()
+    candidate.content = content
+    response = MagicMock()
+    response.candidates = [candidate]
+    return response
+
+
 @pytest.fixture
-def google_tts_client():
+def google_tts_client(monkeypatch):
     from modules.google_tts_client import GoogleTTSClient
     client = GoogleTTSClient()
 
     calls = {"texts": []}
 
-    def _synth(*args, **kwargs):
-        # SynthesisInput first positional in the request; capture text
-        req = kwargs.get("request") or (args[0] if args else None)
-        if req is not None and hasattr(req, "input"):
-            calls["texts"].append(getattr(req.input, "text", None))
-        resp = MagicMock()
-        resp.audio_content = b"x"
-        return resp
+    def _gen(model, contents, config):
+        # contents is the bare text string for native Gemini TTS
+        calls["texts"].append(str(contents))
+        return _gemini_response_with_pcm(b"\x00\x00" * 100)
 
-    client.client = MagicMock()
-    client.client.synthesize_speech.side_effect = _synth
+    fake_client = MagicMock()
+    fake_models = MagicMock()
+    fake_models.generate_content.side_effect = _gen
+    fake_client.models = fake_models
+    monkeypatch.setattr(
+        "modules.google_tts_client.genai.Client",
+        MagicMock(return_value=fake_client),
+        raising=False,
+    )
+
     client._test_calls = calls
     return client
 

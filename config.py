@@ -32,7 +32,7 @@ class Config:
     # Gemini Model Configuration
     TRANSCRIPTION_MODEL = os.getenv('TRANSCRIPTION_MODEL', 'gemini-2.5-flash')
     TRANSLATION_MODEL = os.getenv('TRANSLATION_MODEL', 'gemini-2.5-flash')
-    GEMINI_TTS_MODEL = os.getenv('GEMINI_TTS_MODEL', 'gemini-2.5-flash-tts')
+    GEMINI_TTS_MODEL = os.getenv('GEMINI_TTS_MODEL', 'gemini-3.1-flash-tts-preview')
     
     # Supported formats and languages
     ALLOWED_VIDEO_EXTENSIONS = {'mp4', 'mov'}

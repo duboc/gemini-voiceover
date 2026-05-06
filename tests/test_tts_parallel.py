@@ -14,6 +14,35 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 
+def _gemini_response_with_pcm(pcm: bytes) -> MagicMock:
+    inline_data = MagicMock()
+    inline_data.data = pcm
+    part = MagicMock()
+    part.inline_data = inline_data
+    content = MagicMock()
+    content.parts = [part]
+    candidate = MagicMock()
+    candidate.content = content
+    response = MagicMock()
+    response.candidates = [candidate]
+    return response
+
+
+@pytest.fixture(autouse=True)
+def _patch_genai(monkeypatch):
+    """Bare-persona voices route through genai.Client now; mock it so tests
+    that pre-date the refactor continue to exercise the parallelism logic."""
+    fake_client = MagicMock()
+    fake_models = MagicMock()
+    fake_client.models = fake_models
+    monkeypatch.setattr(
+        "modules.google_tts_client.genai.Client",
+        MagicMock(return_value=fake_client),
+        raising=False,
+    )
+    return fake_models
+
+
 def _build_translation(n: int) -> dict:
     return {
         "target_language": "en-US",
@@ -30,7 +59,7 @@ def google_tts_client():
     return GoogleTTSClient()
 
 
-def test_generate_speech_runs_segments_in_parallel(google_tts_client, tmp_path, monkeypatch):
+def test_generate_speech_runs_segments_in_parallel(google_tts_client, tmp_path, monkeypatch, _patch_genai):
     """10 segments, each simulating 0.2s of latency, should finish well under
     the 2.0s a serial loop would take."""
     from config import Config
@@ -40,19 +69,16 @@ def test_generate_speech_runs_segments_in_parallel(google_tts_client, tmp_path, 
     active = {"count": 0, "max": 0}
     lock = threading.Lock()
 
-    def _slow_synth(*args, **kwargs):
+    def _slow_gemini(*args, **kwargs):
         with lock:
             active["count"] += 1
             active["max"] = max(active["max"], active["count"])
         time.sleep(0.2)
         with lock:
             active["count"] -= 1
-        resp = MagicMock()
-        resp.audio_content = b"fake-audio"
-        return resp
+        return _gemini_response_with_pcm(b"\x00\x00" * 100)
 
-    google_tts_client.client = MagicMock()
-    google_tts_client.client.synthesize_speech.side_effect = _slow_synth
+    _patch_genai.generate_content.side_effect = _slow_gemini
 
     translation = _build_translation(10)
     out_dir = tmp_path / "speech"
@@ -69,20 +95,16 @@ def test_generate_speech_runs_segments_in_parallel(google_tts_client, tmp_path, 
     assert len(files) == 10
 
 
-def test_generate_speech_returns_files_in_segment_order(google_tts_client, tmp_path):
+def test_generate_speech_returns_files_in_segment_order(google_tts_client, tmp_path, _patch_genai):
     """Even though work runs concurrently, the returned list must be ordered
     by segment index so downstream timing logic stays correct."""
 
-    def _synth(*args, **kwargs):
-        # Sleep proportional to text length to scramble completion order
-        text = args[0].text if hasattr(args[0], "text") else "abc"
-        time.sleep(0.05 if "9" in text else 0.01)
-        resp = MagicMock()
-        resp.audio_content = b"x"
-        return resp
+    def _synth(model, contents, config):
+        # Sleep proportional to which segment to scramble completion order
+        time.sleep(0.05 if "segment 9" in str(contents) else 0.01)
+        return _gemini_response_with_pcm(b"\x00\x00" * 100)
 
-    google_tts_client.client = MagicMock()
-    google_tts_client.client.synthesize_speech.side_effect = _synth
+    _patch_genai.generate_content.side_effect = _synth
 
     translation = _build_translation(10)
     files = google_tts_client.generate_speech(translation, "Zephyr", str(tmp_path), model_name="m")
