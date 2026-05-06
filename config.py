@@ -231,6 +231,12 @@ class Config:
     # Google Cloud TTS Configuration (legacy - kept for backward compatibility)
     GOOGLE_CLOUD_PROJECT = os.getenv('GOOGLE_CLOUD_PROJECT')
     TTS_SPEAKING_RATE = float(os.getenv('TTS_SPEAKING_RATE', '1.0'))  # 0.25 to 2.0
+
+    # Final video audio encoding (AAC). Default 192k stereo @ 48kHz keeps
+    # the rendered file on par with consumer video sources.
+    OUTPUT_AUDIO_BITRATE = os.getenv('OUTPUT_AUDIO_BITRATE', '192k')
+    OUTPUT_AUDIO_SAMPLE_RATE = int(os.getenv('OUTPUT_AUDIO_SAMPLE_RATE', '48000'))
+    OUTPUT_AUDIO_CHANNELS = int(os.getenv('OUTPUT_AUDIO_CHANNELS', '2'))
     
     # Audio Synchronization Configuration
     ENABLE_AUDIO_SYNC = os.getenv('ENABLE_AUDIO_SYNC', 'True').lower() == 'true'

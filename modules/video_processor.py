@@ -137,13 +137,16 @@ class VideoProcessor:
             
             video_input = ffmpeg.input(video_path)
             audio_input = ffmpeg.input(new_audio_path)
-            
+
             out = ffmpeg.output(
                 video_input['v'],
                 audio_input['a'],
                 output_path,
                 vcodec='copy',
                 acodec='aac',
+                audio_bitrate=Config.OUTPUT_AUDIO_BITRATE,
+                ac=Config.OUTPUT_AUDIO_CHANNELS,
+                ar=Config.OUTPUT_AUDIO_SAMPLE_RATE,
                 strict='experimental'
             ).overwrite_output()
             

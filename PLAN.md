@@ -24,9 +24,9 @@ Status: aguardando aprovação. Cada item é uma unidade atômica com teste ante
 - [x] Pytest 3/3 verdes.
 
 ### V3 — Áudio final com bitrate explícito e estéreo
-- [ ] Em `tests/test_video_processor_audio_codec.py`, escrever teste que mocka `ffmpeg.run` (e captura `ffmpeg.output(...)` kwargs via spy), chama `replace_video_audio()` e asserta que `audio_bitrate='192k'` e `ac=2` foram passados.
-- [ ] Em `video_processor.py:127-160`, atualizar `replace_video_audio` para usar `audio_bitrate='192k', ac=2, ar=48000`. Adicionar opção env `OUTPUT_AUDIO_BITRATE` (default `192k`) em `config.py`.
-- [ ] Rodar pytest verde.
+- [x] Em `tests/test_video_processor_audio_codec.py`, 3 testes capturando kwargs de `ffmpeg.output`.
+- [x] Em `video_processor.py`, `replace_video_audio` agora passa `audio_bitrate=Config.OUTPUT_AUDIO_BITRATE`, `ac=2`, `ar=48000`. Adicionado em `config.py`: `OUTPUT_AUDIO_BITRATE` (default `192k`), `OUTPUT_AUDIO_SAMPLE_RATE` (48000), `OUTPUT_AUDIO_CHANNELS` (2).
+- [x] Pytest 3/3 verdes.
 
 ---
 
