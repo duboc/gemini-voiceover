@@ -54,7 +54,7 @@ REVIEW_TIMEOUT_SEC="${REVIEW_TIMEOUT_SEC:-1800}"
 # HTTP/2 (which gunicorn-sync/gthread does not speak as h2c), or routing
 # uploads directly to GCS via signed URLs (a Lote 3 item).
 MAX_FILE_SIZE_MB="${MAX_FILE_SIZE_MB:-32}"
-MEMORY="${MEMORY:-4Gi}"
+MEMORY="${MEMORY:-8Gi}"
 CPU="${CPU:-2}"
 
 # Cloud Run inbound request timeout. 3600s (1h) is the gen2 max and lets the
@@ -62,10 +62,17 @@ CPU="${CPU:-2}"
 # in the Dockerfile via gunicorn --timeout.
 CLOUD_RUN_TIMEOUT="${CLOUD_RUN_TIMEOUT:-3600}"
 
+# Single-instance mode: processing_status lives in process memory, so polling
+# /status from a different replica returns 404 ("Invalid process ID"). Pin
+# both bounds to 1 until state is moved to Redis/Firestore (Lote 3).
+MIN_INSTANCES="${MIN_INSTANCES:-1}"
+MAX_INSTANCES="${MAX_INSTANCES:-1}"
+
 echo ""
 echo "📦 Deploying $SERVICE_NAME to Cloud Run ($REGION)..."
 echo "   Memory:    $MEMORY"
 echo "   CPU:       $CPU"
+echo "   Instances: min=$MIN_INSTANCES max=$MAX_INSTANCES (single-instance until Lote 3)"
 echo "   Timeout:   ${CLOUD_RUN_TIMEOUT}s"
 echo "   Bucket:    $GCS_BUCKET_NAME"
 echo "   Workers:   $TTS_PARALLEL_WORKERS parallel TTS"
@@ -80,6 +87,8 @@ gcloud run deploy "$SERVICE_NAME" \
     --cpu "$CPU" \
     --no-cpu-throttling \
     --cpu-boost \
+    --min-instances "$MIN_INSTANCES" \
+    --max-instances "$MAX_INSTANCES" \
     --timeout "$CLOUD_RUN_TIMEOUT" \
     --set-env-vars "GOOGLE_CLOUD_PROJECT=$PROJECT_ID" \
     --set-env-vars "GOOGLE_CLOUD_LOCATION=$REGION" \
