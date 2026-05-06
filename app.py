@@ -510,19 +510,22 @@ def process_video(process_id: str, video_path: str, target_language: str, voice_
         
         # Wait for user approval (poll every 2 seconds)
         import time
-        max_wait_time = 3600  # 1 hour max wait
+        max_wait_time = Config.REVIEW_TIMEOUT_SEC
         wait_time = 0
         while not processing_status[process_id].get('approved', False) and wait_time < max_wait_time:
             time.sleep(2)
             wait_time += 2
-            
+
             # Check if user cancelled or error occurred
             if processing_status[process_id].get('status') == 'cancelled':
                 logger.info(f"Processing cancelled by user for {process_id}")
                 return
-        
+
         if wait_time >= max_wait_time:
-            raise Exception("Review timeout: User did not approve translation within 1 hour")
+            raise Exception(
+                f"Review timeout: User did not approve translation within "
+                f"{max_wait_time}s ({max_wait_time // 60} minutes)"
+            )
         
         # Get potentially updated translation data
         translation_data = processing_status[process_id]['translation_data']

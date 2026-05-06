@@ -23,6 +23,11 @@ class Config:
     # Processing Configuration
     MAX_CONCURRENT_JOBS = int(os.getenv('MAX_CONCURRENT_JOBS', 3))
     CLEANUP_TEMP_FILES_HOURS = int(os.getenv('CLEANUP_TEMP_FILES_HOURS', 24))
+
+    # Review wait: how long the background thread polls for user approval
+    # before giving up. 30 minutes by default — long enough for a thoughtful
+    # review, short enough to bound 'forgotten' jobs that hold a worker.
+    REVIEW_TIMEOUT_SEC = int(os.getenv('REVIEW_TIMEOUT_SEC', 1800))
     
     # Gemini Model Configuration
     TRANSCRIPTION_MODEL = os.getenv('TRANSCRIPTION_MODEL', 'gemini-2.5-flash')
