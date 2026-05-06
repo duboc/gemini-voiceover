@@ -14,6 +14,25 @@ from modules.error_handler import GeminiErrorHandler
 logger = logging.getLogger(__name__)
 
 
+# Single source of truth for translating BCP-47 codes to natural language
+# names sent to Gemini in prompts. Keep aligned with Config.SUPPORTED_LANGUAGES.
+LANGUAGE_NAMES = {
+    'en-US': 'English',
+    'pt-BR': 'Brazilian Portuguese',
+    'es-ES': 'Spanish',
+    'es': 'Spanish',
+    'fr-FR': 'French',
+    'de-DE': 'German',
+    'it-IT': 'Italian',
+    'ja-JP': 'Japanese',
+    'ko-KR': 'Korean',
+    'nl-NL': 'Dutch',
+    'pl-PL': 'Polish',
+    'ru-RU': 'Russian',
+    'zh-CN': 'Mandarin Chinese (Simplified)',
+}
+
+
 class GeminiClient:
     def __init__(self):
         """Initialize Gemini Client using Vertex AI (ADC)"""
@@ -142,19 +161,7 @@ class GeminiClient:
     def translate_text(self, transcription_data: Dict, target_language: str) -> Dict:
         """Translate transcription data to target language with controlled generation"""
         try:
-            language_names = {
-                'pt-BR': 'Brazilian Portuguese',
-                'es-ES': 'Spanish',
-                'es': 'Spanish',
-                'en-US': 'English',
-                'fr-FR': 'French',
-                'de-DE': 'German',
-                'it-IT': 'Italian',
-                'ja-JP': 'Japanese',
-                'ko-KR': 'Korean'
-            }
-            
-            target_lang_name = language_names.get(target_language, target_language)
+            target_lang_name = LANGUAGE_NAMES.get(target_language, target_language)
             
             # Define response schema for controlled generation
             response_schema = {
@@ -468,20 +475,8 @@ class GeminiClient:
             reduction_percent = (ratio - 1.0) * 100
             
             logger.info(f"Adjusting translation: current={current_duration:.1f}s, target={target_duration:.1f}s, reduction needed={reduction_percent:.1f}%")
-            
-            language_names = {
-                'pt-BR': 'Brazilian Portuguese',
-                'es-ES': 'Spanish',
-                'es': 'Spanish',
-                'en-US': 'English',
-                'fr-FR': 'French',
-                'de-DE': 'German',
-                'it-IT': 'Italian',
-                'ja-JP': 'Japanese',
-                'ko-KR': 'Korean'
-            }
-            
-            lang_name = language_names.get(target_language, target_language)
+
+            lang_name = LANGUAGE_NAMES.get(target_language, target_language)
             
             # Define response schema
             response_schema = {

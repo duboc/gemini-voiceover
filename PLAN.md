@@ -7,9 +7,9 @@ Status: aguardando aprovação. Cada item é uma unidade atômica com teste ante
 ## Lote 1 — Mandarim + Quick Wins
 
 ### M1 — Adicionar idiomas faltantes ao `language_names` em `gemini_client.py`
-- [ ] Em `tests/test_gemini_client_languages.py`, escrever teste pytest que importa o módulo, usa monkeypatch no `genai.Client` e valida que o prompt enviado por `translate_text({...}, 'zh-CN')` contém `"Mandarin Chinese (Simplified)"` (não `"zh-CN"`). Repetir para `nl-NL`, `pl-PL`, `ru-RU`.
-- [ ] Refatorar `gemini_client.py`: extrair `LANGUAGE_NAMES` para constante de módulo (top-level), incluir `zh-CN: Mandarin Chinese (Simplified)`, `nl-NL: Dutch`, `pl-PL: Polish`, `ru-RU: Russian`. Atualizar `translate_text()` (linha 145) e `adjust_translation_for_duration()` (linha 472) para usar a constante.
-- [ ] Rodar pytest, marcar verde.
+- [x] Em `tests/test_gemini_client_languages.py`, escrever teste pytest que importa o módulo, usa monkeypatch no `genai.Client` e valida que o prompt enviado por `translate_text({...}, 'zh-CN')` contém `"Mandarin Chinese (Simplified)"` (não `"zh-CN"`). Repetir para `nl-NL`, `pl-PL`, `ru-RU`.
+- [x] Refatorar `gemini_client.py`: extrair `LANGUAGE_NAMES` para constante de módulo (top-level), incluir `zh-CN: Mandarin Chinese (Simplified)`, `nl-NL: Dutch`, `pl-PL: Polish`, `ru-RU: Russian`. Atualizar `translate_text()` e `adjust_translation_for_duration()` para usar a constante.
+- [x] Rodar pytest, marcar verde (11/11 verdes).
 
 ### M2 — Recomendação de TTS para Mandarim (estratégia mínima e segura)
 - [ ] Em `tests/test_tts_recommendation.py`, escrever teste que importa `Config` e valida `Config.get_recommended_tts_backend('zh-CN') == 'gemini'` e que para `'en-US'` retorna `Config.TTS_BACKEND` (default).
