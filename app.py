@@ -539,14 +539,14 @@ def process_video(process_id: str, video_path: str, target_language: str, voice_
         google_tts_client = GoogleTTSClient()
         
         if tts_backend == 'gemini':
-            # Gemini TTS 2.5 Flash
+            # Gemini 3.1 Flash TTS
             processing_status[process_id].update({
                 'status': 'processing',
                 'progress': 70,
-                'message': 'Generating speech with Gemini TTS 2.5 Flash...'
+                'message': 'Generating speech with Gemini 3.1 Flash TTS...'
             })
             
-            logger.info(f"Using Gemini TTS 2.5 Flash for speech generation")
+            logger.info(f"Using Gemini 3.1 Flash TTS for speech generation")
             
             # Validate voice
             if voice_name not in Config.GEMINI_VOICES:

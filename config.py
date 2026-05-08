@@ -30,9 +30,14 @@ class Config:
     REVIEW_TIMEOUT_SEC = int(os.getenv('REVIEW_TIMEOUT_SEC', 1800))
     
     # Gemini Model Configuration
-    TRANSCRIPTION_MODEL = os.getenv('TRANSCRIPTION_MODEL', 'gemini-2.5-flash')
-    TRANSLATION_MODEL = os.getenv('TRANSLATION_MODEL', 'gemini-2.5-flash')
+    TRANSCRIPTION_MODEL = os.getenv('TRANSCRIPTION_MODEL', 'gemini-3-flash-preview')
+    TRANSLATION_MODEL = os.getenv('TRANSLATION_MODEL', 'gemini-3-flash-preview')
     GEMINI_TTS_MODEL = os.getenv('GEMINI_TTS_MODEL', 'gemini-3.1-flash-tts-preview')
+
+    # Gemini API location — gemini-3-flash-preview and newer models require
+    # the global endpoint.  Separate from GOOGLE_CLOUD_LOCATION which is the
+    # Cloud Run / GCS region.
+    GEMINI_API_LOCATION = os.getenv('GEMINI_API_LOCATION', 'global')
     
     # Supported formats and languages
     ALLOWED_VIDEO_EXTENSIONS = {'mp4', 'mov'}
