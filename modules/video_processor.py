@@ -184,6 +184,7 @@ class VideoProcessor:
             escaped_srt = srt_path.replace("\\", "\\\\").replace(":", "\\:")
 
             force_style = (
+                f"FontName=Noto Sans CJK SC,"
                 f"FontSize={Config.SUBTITLE_FONT_SIZE},"
                 f"PrimaryColour={Config.SUBTITLE_FONT_COLOR},"
                 f"OutlineColour={Config.SUBTITLE_OUTLINE_COLOR},"
