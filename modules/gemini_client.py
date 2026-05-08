@@ -37,9 +37,7 @@ class GeminiClient:
     def __init__(self):
         """Initialize Gemini Client using Vertex AI (ADC)"""
         try:
-            # Use Vertex AI with ADC
-            # Assuming us-central1 if not specified, though ideally should be configurable
-            location = os.getenv('GOOGLE_CLOUD_LOCATION', 'us-central1')
+            location = Config.GEMINI_API_LOCATION
             project = Config.GOOGLE_CLOUD_PROJECT
             
             if not project:
@@ -58,6 +56,25 @@ class GeminiClient:
             logger.error(f"Failed to initialize Gemini Client with Vertex AI: {e}")
             raise Exception(f"Gemini Client initialization failed: {str(e)}")
     
+    @staticmethod
+    def _build_thinking_config(model_name: str):
+        """Return a ThinkingConfig that minimises reasoning overhead.
+
+        Gemini 3.x uses ``thinking_level``; 2.5 uses ``thinking_budget``.
+        Non-thinking models (2.0, 1.x) return None so the caller can omit
+        the parameter entirely.
+        """
+        try:
+            if model_name.startswith('gemini-3'):
+                return types.ThinkingConfig(
+                    thinking_level=types.ThinkingLevel.MINIMAL,
+                )
+            if 'gemini-2.5' in model_name:
+                return types.ThinkingConfig(thinking_budget=0)
+        except Exception as e:
+            logger.warning(f"Could not build thinking config for {model_name}: {e}")
+        return None
+
     def transcribe_audio(self, audio_file_path: str, video_file_path: str = None) -> Dict:
         """
         Transcribe audio file with optional video context for better accuracy
@@ -123,19 +140,34 @@ class GeminiClient:
                 ),
             ]
             
-            # Use controlled generation with response schema
+            # Use controlled generation with response schema.
+            # max_output_tokens must be set high to avoid truncation on long
+            # videos. Thinking is minimised because transcription is a
+            # perception task, not a reasoning task — thinking tokens would
+            # otherwise consume the output budget and truncate the JSON.
+            thinking = self._build_thinking_config(Config.TRANSCRIPTION_MODEL)
             config = types.GenerateContentConfig(
                 temperature=0.1,
+                max_output_tokens=65536,
                 response_mime_type="application/json",
                 response_schema=response_schema,
+                **({'thinking_config': thinking} if thinking else {}),
             )
-            
+
             response = self.client.models.generate_content(
                 model=Config.TRANSCRIPTION_MODEL,
                 contents=contents,
                 config=config,
             )
-            
+
+            # Warn when the model stops early — likely output-token exhaustion
+            finish = getattr(response.candidates[0], 'finish_reason', None)
+            if finish and str(finish) not in ('STOP', 'FinishReason.STOP', '1'):
+                logger.warning(
+                    f"Transcription finished with reason={finish}; "
+                    f"output may be truncated — consider raising max_output_tokens"
+                )
+
             # Parse JSON response (should be clean with schema)
             transcription_data = json.loads(response.text)
             
@@ -198,19 +230,28 @@ class GeminiClient:
                 ),
             ]
             
-            # Use controlled generation with response schema
+            thinking = self._build_thinking_config(Config.TRANSLATION_MODEL)
             config = types.GenerateContentConfig(
                 temperature=0.2,
+                max_output_tokens=65536,
                 response_mime_type="application/json",
                 response_schema=response_schema,
+                **({'thinking_config': thinking} if thinking else {}),
             )
-            
+
             response = self.client.models.generate_content(
                 model=Config.TRANSLATION_MODEL,
                 contents=contents,
                 config=config,
             )
-            
+
+            finish = getattr(response.candidates[0], 'finish_reason', None)
+            if finish and str(finish) not in ('STOP', 'FinishReason.STOP', '1'):
+                logger.warning(
+                    f"Translation finished with reason={finish}; "
+                    f"output may be truncated"
+                )
+
             # Parse JSON response (should be clean with schema)
             translation_data = json.loads(response.text)
             return translation_data
@@ -520,18 +561,21 @@ class GeminiClient:
                 ),
             ]
             
+            thinking = self._build_thinking_config(Config.TRANSLATION_MODEL)
             config = types.GenerateContentConfig(
                 temperature=0.3,
+                max_output_tokens=65536,
                 response_mime_type="application/json",
                 response_schema=response_schema,
+                **({'thinking_config': thinking} if thinking else {}),
             )
-            
+
             response = self.client.models.generate_content(
                 model=Config.TRANSLATION_MODEL,
                 contents=contents,
                 config=config,
             )
-            
+
             # Parse response
             adjusted_data = json.loads(response.text)
             

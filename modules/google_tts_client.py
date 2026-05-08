@@ -84,7 +84,7 @@ class GoogleTTSClient:
     def _get_gemini_client(self) -> genai.Client:
         """Lazily build a Vertex AI genai client. Reused across calls."""
         if self._gemini_client is None:
-            location = os.getenv('GOOGLE_CLOUD_LOCATION', 'us-central1')
+            location = Config.GEMINI_API_LOCATION
             project = Config.GOOGLE_CLOUD_PROJECT
             if not project:
                 import google.auth

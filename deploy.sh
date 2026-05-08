@@ -99,7 +99,8 @@ gcloud run deploy "$SERVICE_NAME" \
     --set-env-vars "REVIEW_TIMEOUT_SEC=$REVIEW_TIMEOUT_SEC" \
     --set-env-vars "TTS_PARALLEL_WORKERS=$TTS_PARALLEL_WORKERS" \
     --set-env-vars "ENABLE_LOUDNORM=$ENABLE_LOUDNORM" \
-    --set-env-vars "OUTPUT_AUDIO_BITRATE=$OUTPUT_AUDIO_BITRATE"
+    --set-env-vars "OUTPUT_AUDIO_BITRATE=$OUTPUT_AUDIO_BITRATE" \
+    --set-env-vars "GEMINI_API_LOCATION=global"
 
 echo ""
 echo "🎉 Deployment complete!"
