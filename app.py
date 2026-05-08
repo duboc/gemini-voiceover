@@ -11,6 +11,7 @@ from modules.file_manager import FileManager
 from modules.audio_separator import AudioSeparator
 from modules.google_tts_client import GoogleTTSClient
 from modules.audio_synchronizer import AudioSynchronizer
+from modules.subtitle_generator import SubtitleGenerator
 
 # Set up logging
 logging.basicConfig(
@@ -135,7 +136,9 @@ def upload_file():
         separation_model = request.form.get('separation_model', Config.DEFAULT_SEPARATION_MODEL)
         processing_mode = request.form.get('processing_mode', Config.DEFAULT_PROCESSING_MODE)
         vocal_balance = float(request.form.get('vocal_balance', Config.DEFAULT_VOCAL_MUSIC_BALANCE))
-        
+        enable_subtitles = request.form.get('enable_subtitles', 'false').lower() == 'true'
+        subtitle_language = request.form.get('subtitle_language', target_language)
+
         if target_language not in Config.SUPPORTED_LANGUAGES:
             return jsonify({'error': 'Unsupported language'}), 400
         
@@ -162,7 +165,10 @@ def upload_file():
         
         if not (0.0 <= vocal_balance <= 1.0):
             return jsonify({'error': 'Invalid vocal balance value'}), 400
-        
+
+        if enable_subtitles and subtitle_language not in Config.SUPPORTED_LANGUAGES:
+            return jsonify({'error': 'Unsupported subtitle language'}), 400
+
         # Save uploaded file
         video_path = file_manager.save_uploaded_file(file, "video")
         
@@ -199,7 +205,7 @@ def upload_file():
         # Start processing in background thread
         thread = threading.Thread(
             target=process_video,
-            args=(process_id, video_path, target_language, voice_name, tts_backend, separation_model, processing_mode, vocal_balance, file.filename)
+            args=(process_id, video_path, target_language, voice_name, tts_backend, separation_model, processing_mode, vocal_balance, file.filename, enable_subtitles, subtitle_language)
         )
         thread.daemon = True
         thread.start()
@@ -345,8 +351,9 @@ def download_file(process_id):
         return send_file(result_file, as_attachment=True)
 
 
-def process_video(process_id: str, video_path: str, target_language: str, voice_name: str, 
-                 tts_backend: str, separation_model: str, processing_mode: str, vocal_balance: float, original_filename: str):
+def process_video(process_id: str, video_path: str, target_language: str, voice_name: str,
+                 tts_backend: str, separation_model: str, processing_mode: str, vocal_balance: float, original_filename: str,
+                 enable_subtitles: bool = False, subtitle_language: str = ''):
     """Process video in background thread with Demucs separation and intelligent fallback"""
     temp_dir = None
     audio_separator = None
@@ -816,10 +823,30 @@ def process_video(process_id: str, video_path: str, target_language: str, voice_
             'message': 'Creating final video...'
         })
         
-        # Replace video audio with mixed result
+        # Replace video audio (and optionally burn-in subtitles)
         temp_output_path = os.path.join(temp_dir, "output_video.mp4")
         logger.info(f"Creating final video: {temp_output_path}")
-        video_processor.replace_video_audio(local_video_path, final_audio_path, temp_output_path)
+
+        if enable_subtitles:
+            processing_status[process_id].update({
+                'message': 'Generating subtitles and encoding video...'
+            })
+
+            if subtitle_language and subtitle_language != target_language:
+                logger.info(f"Translating subtitles to {subtitle_language} (differs from voiceover {target_language})")
+                subtitle_data = gemini_client.translate_text(transcription_data, subtitle_language)
+            else:
+                subtitle_data = translation_data
+
+            subtitle_generator = SubtitleGenerator()
+            srt_path = os.path.join(temp_dir, "subtitles.srt")
+            subtitle_generator.generate_srt(subtitle_data['transcription'], srt_path)
+
+            video_processor.replace_video_audio_with_subtitles(
+                local_video_path, final_audio_path, srt_path, temp_output_path,
+            )
+        else:
+            video_processor.replace_video_audio(local_video_path, final_audio_path, temp_output_path)
         
         # Save final output
         final_output_path = file_manager.save_output_file(temp_output_path, original_filename)

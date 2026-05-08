@@ -162,6 +162,63 @@ class VideoProcessor:
             logger.error(f"Unexpected error during video audio replacement: {str(e)}")
             raise Exception(f"Video audio replacement failed: {str(e)}")
     
+    def replace_video_audio_with_subtitles(
+        self, video_path: str, new_audio_path: str, srt_path: str, output_path: str,
+    ) -> str:
+        """Replace audio AND burn-in SRT subtitles into the video.
+
+        Unlike ``replace_video_audio`` this re-encodes the video stream
+        (libx264) because the ``subtitles`` filter requires decoded frames.
+        """
+        try:
+            logger.info(
+                f"Replacing audio + burning subtitles: video={video_path}, "
+                f"audio={new_audio_path}, srt={srt_path}"
+            )
+            for p, label in ((video_path, "Video"), (new_audio_path, "Audio"), (srt_path, "SRT")):
+                if not os.path.exists(p):
+                    raise Exception(f"{label} file not found: {p}")
+
+            # FFmpeg's subtitles filter needs the path escaped for its own
+            # parser — colons and backslashes must be escaped.
+            escaped_srt = srt_path.replace("\\", "\\\\").replace(":", "\\:")
+
+            force_style = (
+                f"FontSize={Config.SUBTITLE_FONT_SIZE},"
+                f"PrimaryColour={Config.SUBTITLE_FONT_COLOR},"
+                f"OutlineColour={Config.SUBTITLE_OUTLINE_COLOR},"
+                f"Outline={Config.SUBTITLE_OUTLINE_WIDTH},"
+                f"Alignment=2"
+            )
+
+            cmd = [
+                "ffmpeg", "-y",
+                "-i", video_path,
+                "-i", new_audio_path,
+                "-filter_complex",
+                f"[0:v]subtitles='{escaped_srt}':force_style='{force_style}'[vout]",
+                "-map", "[vout]",
+                "-map", "1:a",
+                "-c:v", "libx264", "-preset", "medium", "-crf", "23",
+                "-c:a", "aac",
+                "-b:a", Config.OUTPUT_AUDIO_BITRATE,
+                "-ac", str(Config.OUTPUT_AUDIO_CHANNELS),
+                "-ar", str(Config.OUTPUT_AUDIO_SAMPLE_RATE),
+                "-strict", "experimental",
+                output_path,
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True)
+            if result.returncode != 0:
+                raise Exception(f"FFmpeg subtitle burn-in failed: {result.stderr}")
+
+            logger.info("Video audio+subtitle replacement completed successfully")
+            return output_path
+
+        except Exception as e:
+            logger.error(f"Error during subtitle burn-in: {e}")
+            raise Exception(f"Video subtitle burn-in failed: {str(e)}")
+
     def _get_segment_duration(self, audio_file: str) -> float:
         """Probe an audio file's duration in seconds. 0.0 on failure."""
         try:
