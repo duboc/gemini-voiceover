@@ -266,6 +266,13 @@ class Config:
     LOUDNORM_TP = os.getenv('LOUDNORM_TP', '-1.5')
     LOUDNORM_LRA = os.getenv('LOUDNORM_LRA', '11')
     
+    # Burn-in subtitles: ASS/SSA style values used by FFmpeg's subtitles
+    # filter ``force_style`` option. Colours are in &HAABBGGRR order.
+    SUBTITLE_FONT_SIZE = int(os.getenv('SUBTITLE_FONT_SIZE', '24'))
+    SUBTITLE_FONT_COLOR = os.getenv('SUBTITLE_FONT_COLOR', '&H00FFFFFF')
+    SUBTITLE_OUTLINE_COLOR = os.getenv('SUBTITLE_OUTLINE_COLOR', '&H00000000')
+    SUBTITLE_OUTLINE_WIDTH = int(os.getenv('SUBTITLE_OUTLINE_WIDTH', '2'))
+
     # Audio Synchronization Configuration
     ENABLE_AUDIO_SYNC = os.getenv('ENABLE_AUDIO_SYNC', 'True').lower() == 'true'
     MAX_TIMING_DIFFERENCE_SEC = float(os.getenv('MAX_TIMING_DIFFERENCE_SEC', '0.5'))

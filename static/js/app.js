@@ -82,6 +82,15 @@ class VideoTranslator {
         formData.append('separation_model', separationModelSelect.value);
         formData.append('vocal_balance', vocalBalanceInput.value);
 
+        const enableSubtitles = document.getElementById('enable-subtitles');
+        if (enableSubtitles && enableSubtitles.checked) {
+            formData.append('enable_subtitles', 'true');
+            const subtitleLang = document.getElementById('subtitle-language');
+            if (subtitleLang) {
+                formData.append('subtitle_language', subtitleLang.value);
+            }
+        }
+
         try {
             // Show processing section
             this.showSection('processing-section');
@@ -634,10 +643,34 @@ function toggleAudioSettings() {
     }
 }
 
+// Toggle subtitle settings visibility
+function toggleSubtitleSettings() {
+    const checkbox = document.getElementById('enable-subtitles');
+    const settings = document.getElementById('subtitle-settings');
+    if (settings) {
+        settings.style.display = checkbox && checkbox.checked ? 'block' : 'none';
+    }
+    // Sync subtitle language with voiceover target language when first shown
+    if (checkbox && checkbox.checked) {
+        const lang = document.getElementById('language');
+        const subLang = document.getElementById('subtitle-language');
+        if (lang && subLang && !subLang.dataset.userChanged) {
+            subLang.value = lang.value;
+        }
+    }
+}
+
 // Initialize audio settings toggle on page load
 document.addEventListener('DOMContentLoaded', () => {
-    // Call toggle function to set initial state
     if (typeof toggleAudioSettings === 'function') {
         toggleAudioSettings();
+    }
+    if (typeof toggleSubtitleSettings === 'function') {
+        toggleSubtitleSettings();
+    }
+    // Mark subtitle language as user-changed once the user interacts
+    const subLang = document.getElementById('subtitle-language');
+    if (subLang) {
+        subLang.addEventListener('change', () => { subLang.dataset.userChanged = 'true'; });
     }
 });

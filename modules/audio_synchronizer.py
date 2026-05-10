@@ -103,9 +103,20 @@ class AudioSynchronizer:
             output_file = os.path.join(output_dir, f"synced_segment_{segment_index:03d}.wav")
             
             if self.sync_method == 'stretch':
-                # Time-stretch the audio to match expected duration
+                # If the required slowdown exceeds the natural limit, pad
+                # instead of stretching — over-stretched audio sounds
+                # robotic and unintelligible.
+                if actual_duration > 0 and expected_duration > 0:
+                    tempo = actual_duration / expected_duration
+                    if tempo < self.min_stretch_factor:
+                        logger.info(
+                            f"Segment {segment_index}: stretch would need "
+                            f"tempo={tempo:.2f}x (below min {self.min_stretch_factor:.2f}x), "
+                            f"using pad instead"
+                        )
+                        return self._pad_audio(audio_file, actual_duration, expected_duration, output_file)
                 return self._stretch_audio(audio_file, actual_duration, expected_duration, output_file)
-            
+
             elif self.sync_method == 'pad':
                 # Add silence to match expected duration
                 return self._pad_audio(audio_file, actual_duration, expected_duration, output_file)

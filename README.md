@@ -1,13 +1,11 @@
 # Gemini Video Voiceover Translator
 
 Translate the narration of a video into another language while keeping the
-original timing, optionally preserving the background music. End-to-end on
-Google Cloud: Vertex AI Gemini for transcription/translation, Cloud TTS
-(Gemini 2.5 Flash or Chirp 3 HD) for the new voice, Demucs for vocal
-isolation, FFmpeg for everything else.
-
-A live deploy of this repo is running at
-`https://gemini-voiceover-713488125678.us-central1.run.app`.
+original timing, optionally preserving the background music, and optionally
+burning in subtitles in any supported language (which can differ from the
+voiceover language). End-to-end on Google Cloud: Vertex AI Gemini for
+transcription/translation, Cloud TTS (Gemini 3.1 Flash or Chirp 3 HD) for
+the new voice, Demucs for vocal isolation, FFmpeg for everything else.
 
 ---
 
@@ -36,14 +34,13 @@ A live deploy of this repo is running at
 │  └────────┬─────────┘    (skipped in `replace_all` mode)                             │
 │           │                                                                          │
 │           ▼  vocals.wav + video frames                                               │
-│  ┌─────────────────────────────────────┐    Vertex AI Gemini 2.5 Flash               │
+│  ┌─────────────────────────────────────┐    Vertex AI Gemini 3 Flash                 │
 │  │ Transcribe (multimodal)             │ ─► [{start_time, end_time, text}, …]        │
 │  │  + quality_score validate / regen   │                                             │
 │  └────────┬────────────────────────────┘                                             │
 │           ▼                                                                          │
-│  ┌─────────────────────────────────────┐    Gemini 2.5 Flash                         │
-│  │ Translate to target language        │ ─► segments translated                      │
-│  │  uses LANGUAGE_NAMES (zh/nl/pl/ru…) │                                             │
+│  ┌─────────────────────────────────────┐    Gemini 3 Flash                           │
+│  │ Translate to target language        │ ─► segments translated (voiceover)          │
 │  └────────┬────────────────────────────┘                                             │
 │           ▼                                                                          │
 │  ╔═════════════════════════════════════╗                                             │
@@ -54,7 +51,7 @@ A live deploy of this repo is running at
 │  ┌─────────────────────────────────────┐    Vertex AI Cloud TTS                      │
 │  │ Generate TTS — parallel             │   ┌───────────────────────────────────┐    │
 │  │  ThreadPoolExecutor                 │ ► │ TTS_PARALLEL_WORKERS = 5          │    │
-│  │  Gemini 2.5 Flash TTS  /  Chirp 3   │   │ retries = TTS_MAX_RETRIES         │    │
+│  │  Gemini 3.1 Flash TTS / Chirp 3 HD  │   │ retries = TTS_MAX_RETRIES         │    │
 │  └────────┬────────────────────────────┘   └───────────────────────────────────┘    │
 │           ▼  N × segment_NNN_*.wav (24 kHz)                                          │
 │  ┌─────────────────────────────────────┐                                             │
@@ -63,8 +60,8 @@ A live deploy of this repo is running at
 │  └────────┬────────────────────────────┘                                             │
 │           ▼                                                                          │
 │  ┌─────────────────────────────────────┐                                             │
-│  │ Per-segment time-stretch (atempo)   │  pitch-preserving                           │
-│  │  AudioSynchronizer                  │  bounded by MIN/MAX_SPEAKING_RATE           │
+│  │ Per-segment sync (AudioSynchronizer)│  stretch (atempo) if within rate limits;    │
+│  │                                     │  pad with silence if TTS << slot duration   │
 │  └────────┬────────────────────────────┘                                             │
 │           ▼                                                                          │
 │  ┌─────────────────────────────────────┐                                             │
@@ -82,16 +79,42 @@ A live deploy of this repo is running at
 │  │  (preserve_music mode only)         │                                             │
 │  └────────┬────────────────────────────┘                                             │
 │           ▼                                                                          │
-│  ┌─────────────────────────────────────┐                                             │
-│  │ FFmpeg mux: video copy + AAC        │  OUTPUT_AUDIO_BITRATE = 192k                │
-│  │                                     │  stereo, 48 kHz                             │
-│  └────────┬────────────────────────────┘                                             │
+│  ┌──────────────────────────────────────────────────────────────────────┐            │
+│  │ Subtitles enabled?                                                   │            │
+│  │                                                                      │            │
+│  │  YES ─► Gemini 3 Flash translates to subtitle_language (if differs) │            │
+│  │         SubtitleGenerator writes .srt from segments                  │            │
+│  │         FFmpeg re-encodes video (libx264) + burns in subtitles       │            │
+│  │                                                                      │            │
+│  │  NO  ─► FFmpeg mux: video stream copy + AAC audio                   │            │
+│  └────────┬─────────────────────────────────────────────────────────────┘            │
 └───────────┼──────────────────────────────────────────────────────────────────────────┘
             ▼
   ┌──────────────────────────────────────────────┐
   │  gs://<project>-gemini-voiceover/outputs/    │ ─► signed URL ─► browser download   │
   └──────────────────────────────────────────────┘
 ```
+
+---
+
+## Burn-in subtitles
+
+When **Add burn-in subtitles** is checked in the UI, the subtitle language
+can be set independently from the voiceover language. For example: voiceover
+in Chinese (Mandarin), subtitles in Portuguese.
+
+- If the subtitle language **matches** the voiceover language, the already-
+  translated segments are reused directly — no extra API call.
+- If the subtitle language **differs**, `GeminiClient.translate_text()` is
+  called a second time to produce the subtitle text. This reuses the same
+  transcription segments, so timestamps stay in sync.
+- Subtitles are burned into the video via FFmpeg's `subtitles` filter
+  (`force_style`, ASS/SSA format). The video stream is re-encoded with
+  `libx264` (no `-c:v copy` because the filter requires decoded frames).
+- CJK characters (Chinese, Japanese, Korean) render correctly — the
+  container ships `fonts-noto-cjk` and the filter pins `FontName=Noto Sans CJK SC`.
+
+Subtitle style is configurable via env vars (see Configuration).
 
 ---
 
@@ -147,24 +170,25 @@ GCS_TEMP_FILE_RETENTION_DAYS=7
 Models:
 
 ```env
-TRANSCRIPTION_MODEL=gemini-2.5-flash
-TRANSLATION_MODEL=gemini-2.5-flash
-GEMINI_TTS_MODEL=gemini-2.5-flash-tts        # NOT ...-preview-tts
-TTS_BACKEND=gemini                            # gemini | chirp3
+TRANSCRIPTION_MODEL=gemini-3-flash-preview
+TRANSLATION_MODEL=gemini-3-flash-preview
+GEMINI_TTS_MODEL=gemini-3.1-flash-tts-preview
+GEMINI_API_LOCATION=global          # gemini-3-flash-preview requires global endpoint
+TTS_BACKEND=gemini                  # gemini | chirp3
 ```
 
 Performance / sync (defaults shown):
 
 ```env
-TTS_PARALLEL_WORKERS=5                        # parallel TTS calls
-TTS_MAX_RETRIES=5                             # honoured by retry loop
+TTS_PARALLEL_WORKERS=5              # parallel TTS calls
+TTS_MAX_RETRIES=5                   # honoured by retry loop
 ENABLE_AUDIO_SYNC=True
 MAX_TIMING_DIFFERENCE_SEC=0.5
 ENFORCE_ORIGINAL_DURATION=True
 MAX_DURATION_ADJUSTMENT_ATTEMPTS=3
-MIN_SPEAKING_RATE=0.85
+MIN_SPEAKING_RATE=0.85              # slowest tempo before sync falls back to pad
 MAX_SPEAKING_RATE=1.15
-REVIEW_TIMEOUT_SEC=1800                       # 30 min cap on awaiting approval
+REVIEW_TIMEOUT_SEC=1800             # 30 min cap on awaiting approval
 ```
 
 Final-render audio:
@@ -177,6 +201,15 @@ ENABLE_LOUDNORM=True
 LOUDNORM_TARGET_I=-16
 LOUDNORM_TP=-1.5
 LOUDNORM_LRA=11
+```
+
+Burn-in subtitles (ASS/SSA style, `&HAABBGGRR` colour order):
+
+```env
+SUBTITLE_FONT_SIZE=24
+SUBTITLE_FONT_COLOR=&H00FFFFFF      # white
+SUBTITLE_OUTLINE_COLOR=&H00000000   # black outline
+SUBTITLE_OUTLINE_WIDTH=2
 ```
 
 Full list with comments: `.env.example`.
@@ -217,7 +250,7 @@ The script:
 2. Creates `gs://<PROJECT_ID>-gemini-voiceover` in `us-central1` if it
    doesn't exist (override with `GCS_BUCKET_NAME=…`).
 3. Runs `gcloud run deploy --source .`, building the container via Cloud
-   Build, with `--memory 4Gi --cpu 2 --timeout 3600` and the env vars
+   Build, with `--memory 8Gi --cpu 2 --timeout 3600` and the env vars
    above wired in.
 4. Prints the resulting service URL.
 
@@ -250,14 +283,15 @@ gemini-voiceover/
 ├── app.py                      # Flask routes + background processing thread
 ├── config.py                   # All env-driven configuration
 ├── deploy.sh                   # Cloud Run deploy + GCS bucket bootstrap
-├── Dockerfile                  # python:3.11-slim + ffmpeg, gunicorn 600s
+├── Dockerfile                  # python:3.11-slim + ffmpeg + fonts-noto-cjk, gunicorn
 ├── requirements.txt
 ├── modules/
 │   ├── gemini_client.py        # Vertex AI: transcribe, translate, shorten
-│   ├── google_tts_client.py    # Vertex AI Cloud TTS (parallel synth)
+│   ├── google_tts_client.py    # Gemini 3.1 Flash TTS + Chirp 3 HD (parallel synth)
+│   ├── subtitle_generator.py   # SRT generation from translation segments
 │   ├── audio_separator.py      # Demucs vocal/music separation
-│   ├── audio_synchronizer.py   # Per-segment atempo time-stretch
-│   ├── video_processor.py      # FFmpeg: extract, concat, mux, loudnorm
+│   ├── audio_synchronizer.py   # Per-segment atempo stretch; pad fallback for large diffs
+│   ├── video_processor.py      # FFmpeg: extract, concat, mux, loudnorm, subtitle burn-in
 │   ├── file_manager.py         # Local + GCS storage abstraction
 │   ├── gcs_client.py           # GCS bucket operations + lifecycle
 │   ├── gcs_url_generator.py    # Signed URL generation
@@ -266,7 +300,7 @@ gemini-voiceover/
 ├── static/
 │   ├── css/style.css
 │   └── js/app.js               # Polls /status, renders review, fetches recs
-└── tests/                      # pytest, 39 cases, no live cloud calls
+└── tests/                      # pytest, no live cloud calls
 ```
 
 ---
@@ -303,6 +337,9 @@ gemini-voiceover/
   Vertex; the UI nudges users toward Gemini TTS for `zh-CN` for that
   reason. The fix is dynamic voice-list discovery against
   `texttospeech.list_voices(language_code=…)`.
+- **Subtitle burn-in re-encodes the video.** When subtitles are enabled,
+  `libx264` is used instead of stream copy, which increases processing
+  time and slightly changes the video bitrate.
 
 ---
 
