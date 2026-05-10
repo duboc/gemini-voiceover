@@ -62,10 +62,11 @@ CPU="${CPU:-2}"
 # in the Dockerfile via gunicorn --timeout.
 CLOUD_RUN_TIMEOUT="${CLOUD_RUN_TIMEOUT:-3600}"
 
-# Single-instance mode: processing_status lives in process memory, so polling
-# /status from a different replica returns 404 ("Invalid process ID"). Pin
-# both bounds to 1 until state is moved to Redis/Firestore (Lote 3).
-MIN_INSTANCES="${MIN_INSTANCES:-1}"
+# Scale-to-zero saves cost when idle. Max pinned to 1 because
+# processing_status lives in process memory — polling /status from a
+# different replica returns 404. Raise max once state moves to
+# Redis/Firestore.
+MIN_INSTANCES="${MIN_INSTANCES:-0}"
 MAX_INSTANCES="${MAX_INSTANCES:-1}"
 
 echo ""
